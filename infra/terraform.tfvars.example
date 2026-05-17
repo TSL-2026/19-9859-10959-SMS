@@ -1,0 +1,18 @@
+project_id           = "your-gcp-project-id"
+region               = "us-central1"
+environment          = "dev"
+db_name              = "safety_monitor_prod"
+db_user              = "safety_user"
+db_password          = "CHANGE_ME_32_CHAR_MIN"
+jwt_secret           = "CHANGE_ME_64_CHAR_HEX"
+encryption_key       = "CHANGE_ME_64_CHAR_HEX"
+budget_alert_email   = "admin@example.com"
+
+cloud_run_service_name  = "safety-monitor"
+cloud_sql_instance_name = "safety-monitor-db"
+
+# Optional: customize bucket name
+# storage_bucket_name = "my-company-safety-uploads"
+
+# Required for budget alerts
+# billing_account_id = "XXXXXX-XXXXXX-XXXXXX"

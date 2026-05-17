@@ -1,0 +1,35 @@
+version: "3.9"
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:8080"
+    environment:
+      PORT: "8080"
+      NODE_ENV: production
+      DB_HOST: /cloudsql/${GCP_PROJECT_ID}:${GCP_REGION}:${CLOUD_SQL_INSTANCE}
+      DB_NAME: "${DB_NAME:-safety_monitor_prod}"
+      DB_USER: "${DB_USER:-safety_user}"
+      DB_PASSWORD: "${DB_PASSWORD}"
+      JWT_SECRET: "${JWT_SECRET}"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY}"
+    volumes:
+      - ./uploads:/app/uploads
+      - cloudsql:/cloudsql
+
+  cloud-sql-proxy:
+    image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.15
+    volumes:
+      - cloudsql:/cloudsql
+    environment:
+      INSTANCE_CONNECTION_NAME: "${GCP_PROJECT_ID}:${GCP_REGION}:${CLOUD_SQL_INSTANCE}"
+    command:
+      - "--address=0.0.0.0"
+      - "--port=5432"
+      - "${GCP_PROJECT_ID}:${GCP_REGION}:${CLOUD_SQL_INSTANCE}"
+    ports:
+      - "5432:5432"
+
+volumes:
+  cloudsql:
