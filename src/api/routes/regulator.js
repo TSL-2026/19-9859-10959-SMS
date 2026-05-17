@@ -31,11 +31,11 @@ router.get('/trends', async (req, res, next) => {
   }
 });
 
-// Per-tenant aggregated data (counts only, no raw data)
+// Per-tenant aggregated data grouped by tenant_type (counts only, no raw data)
 router.get('/tenants', async (req, res, next) => {
   try {
-    const { rows } = await pool.query('SELECT regulator_spi_by_tenant()');
-    res.json(rows[0].regulator_spi_by_tenant);
+    const { rows } = await pool.query('SELECT regulator_spi_by_tenant_type()');
+    res.json(rows[0].regulator_spi_by_tenant_type);
   } catch (err) {
     logger.error('Regulator by-tenant error', { error: err.message });
     next(err);

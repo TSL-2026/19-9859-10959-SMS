@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "migrate": "node src/db/migrations/run.js"
+    "migrate": "node src/db/migrations/run.js",
+    "test": "node test-safety.js"
   },
   "dependencies": {
     "bull": "^4.12.9",

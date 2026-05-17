@@ -1,502 +1,472 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Regulator Safety Dashboard — Annex 19</title>
-<link rel="stylesheet" href="styles.css">
-<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Safety Monitor – Regulator Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; padding: 24px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 { color: #1a3a5c; margin-bottom: 8px; }
+        .subtitle { color: #4a627a; margin-bottom: 24px; border-left: 3px solid #2c7da0; padding-left: 12px; }
+        .tabs { display: flex; gap: 8px; margin-bottom: 24px; border-bottom: 1px solid #ddd; }
+        .tab { padding: 10px 20px; cursor: pointer; border-radius: 8px 8px 0 0; background: #e9ecef; transition: 0.2s; }
+        .tab.active { background: white; border-bottom: 2px solid #2c7da0; font-weight: 600; }
+        .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 32px; }
+        .card { background: white; padding: 20px; border-radius: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); text-align: center; }
+        .card h3 { font-size: 14px; color: #5a6874; margin-bottom: 8px; }
+        .card .value { font-size: 32px; font-weight: 700; color: #1a3a5c; }
+        .card .sub { font-size: 12px; color: #8a9aa8; margin-top: 4px; }
+        .chart-container { background: white; padding: 20px; border-radius: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 32px; }
+        canvas { max-height: 300px; width: 100%; }
+        .two-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 32px; }
+        .three-columns { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; margin-bottom: 32px; }
+        .info-panel { background: white; padding: 20px; border-radius: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        .info-panel h3 { margin-bottom: 12px; color: #1a3a5c; }
+        .tenant-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+        .tenant-table th, .tenant-table td { padding: 10px; text-align: left; border-bottom: 1px solid #e2e8f0; font-size: 14px; }
+        .tenant-table th { font-weight: 600; color: #5a6874; text-transform: uppercase; font-size: 12px; }
+        .recommendations { list-style: none; margin-top: 12px; }
+        .recommendations li { padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
+        .recommendations li::before { content: "✓ "; color: #2c7da0; font-weight: 700; }
+        .error-banner { background: #fee2e2; color: #b91c1c; padding: 16px; border-radius: 12px; margin-bottom: 20px; border-left: 4px solid #b91c1c; }
+        .loading { text-align: center; padding: 60px; color: #2c7da0; }
+        button { background: #2c7da0; color: white; border: none; padding: 6px 16px; border-radius: 6px; cursor: pointer; font-weight: 500; }
+        button:hover { background: #1f5e7a; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .metric-badge { display: inline-block; background: #e9ecef; padding: 4px 12px; border-radius: 20px; font-size: 13px; margin-top: 8px; }
+        .no-data { color: #8a9aa8; text-align: center; padding: 30px 0; }
+        .gauge { position: relative; display: inline-block; margin: 8px 0; }
+        .gauge-value { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 22px; font-weight: 700; color: #1a3a5c; }
+        @media (max-width: 700px) { .two-columns, .three-columns { grid-template-columns: 1fr; } }
+    </style>
 </head>
 <body>
-<div id="root"></div>
-<script type="text/babel">
-const { useState, useEffect, useRef, useCallback } = React;
-const COLORS = ['#0f3460','#e94560','#16213e','#1a1a2e','#533483','#0db39e','#f5a623','#7ed321','#d0021b','#4a90d9'];
+<div class="container">
+    <h1>&#9992;&#65039; Safety Signal Monitor</h1>
+    <div class="subtitle">ICAO Annex 19 | Doc 9859 | Doc 10959 — Cross‑tenant regulator view (fully anonymized)</div>
 
-function getToken() {
-  const p = new URLSearchParams(window.location.search);
-  return p.get('token') || localStorage.getItem('regulator_token') || '';
-}
+    <div id="loading" class="loading">Loading dashboard data…</div>
+    <div id="errorMsg" class="error-banner" style="display:none;"></div>
+    <div id="noToken" style="display:none;"></div>
 
-function setToken(t) {
-  localStorage.setItem('regulator_token', t);
-}
+    <div id="dashboardContent" style="display:none;">
+        <div class="tabs">
+            <div class="tab active" data-tab="spi">&#128202; SPI Overview</div>
+            <div class="tab" data-tab="just">&#9878;&#65039; Just Culture Metrics</div>
+        </div>
 
-function App() {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [exporting, setExporting] = useState(false);
-  const [token, setTokenState] = useState(getToken());
-  const [tab, setTab] = useState('overview');
-  const [jcHealth, setJcHealth] = useState(null);
-  const [jcTimeline, setJcTimeline] = useState(null);
-  const [jcBenchmark, setJcBenchmark] = useState(null);
-  const [jcLoading, setJcLoading] = useState(false);
-  const reportRef = useRef(null);
+        <!-- SPI TAB -->
+        <div id="spiTab">
+            <div class="card-grid" id="summaryCards"></div>
 
-  const fetchData = useCallback(async () => {
-    const t = getToken();
-    if (!t) { setError('No regulator token found'); setLoading(false); return; }
-    setLoading(true); setError(null);
-    try {
-      const res = await fetch('/api/regulator/export', { headers: { Authorization: 'Bearer ' + t } });
-      if (res.status === 401 || res.status === 403) throw new Error('Access denied — invalid or missing regulator token');
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      setData(await res.json());
-    } catch (e) { setError(e.message); }
-    finally { setLoading(false); }
-  }, []);
+            <div class="two-columns">
+                <div class="chart-container">
+                    <h3 style="margin-bottom:12px;color:#1a3a5c;">Signals by Type</h3>
+                    <canvas id="signalsByTypeChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <h3 style="margin-bottom:12px;color:#1a3a5c;">Alerts by Level</h3>
+                    <canvas id="alertsByLevelChart"></canvas>
+                </div>
+            </div>
 
-  const fetchJustCulture = useCallback(async () => {
-    const t = getToken();
-    if (!t) return;
-    setJcLoading(true);
-    try {
-      const [health, timeline, benchmark] = await Promise.all([
-        fetch('/api/just-culture/health', { headers: { Authorization: 'Bearer ' + t } }),
-        fetch('/api/just-culture/timeline?months=12', { headers: { Authorization: 'Bearer ' + t } }),
-        fetch('/api/just-culture/benchmark', { headers: { Authorization: 'Bearer ' + t } }),
-      ]);
-      if (health.ok) setJcHealth(await health.json());
-      if (timeline.ok) setJcTimeline((await timeline.json()).timeline);
-      if (benchmark.ok) setJcBenchmark(await benchmark.json());
-    } catch (e) { /* silent */ }
-    finally { setJcLoading(false); }
-  }, []);
+            <div class="two-columns">
+                <div class="chart-container">
+                    <h3 style="margin-bottom:12px;color:#1a3a5c;">Monthly Signal Trends</h3>
+                    <canvas id="trendChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <h3 style="margin-bottom:12px;color:#1a3a5c;">Monthly Avg Risk Level</h3>
+                    <canvas id="riskTrendChart"></canvas>
+                </div>
+            </div>
 
-  useEffect(() => {
-    if (token) {
-      fetchData();
-      fetchJustCulture();
-    } else {
-      setLoading(false);
-      setError(null);
+            <div class="info-panel">
+                <h3>&#127963; Per-Tenant Aggregated SPI Data</h3>
+                <div id="tenantTable"><div class="no-data">No tenant data available</div></div>
+            </div>
+            <div style="text-align:right;margin-top:16px;">
+                <button id="exportPdfBtn">&#128196; Export PDF (Annex 19)</button>
+            </div>
+        </div>
+
+        <!-- JUST CULTURE TAB -->
+        <div id="justTab" style="display:none;">
+            <div class="card-grid" id="jcCards"></div>
+
+            <div class="two-columns">
+                <div class="chart-container">
+                    <h3 style="margin-bottom:12px;color:#1a3a5c;">Voluntary Reports Timeline</h3>
+                    <canvas id="voluntaryTimelineChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <h3 style="margin-bottom:12px;color:#1a3a5c;">Per-Tenant Reporting Rate</h3>
+                    <canvas id="tenantRateChart"></canvas>
+                </div>
+            </div>
+
+            <div class="two-columns">
+                <div class="info-panel">
+                    <h3>&#128200; Component Breakdown</h3>
+                    <div id="componentBreakdown"></div>
+                </div>
+                <div class="info-panel">
+                    <h3>&#128161; Recommendations (Doc 10959)</h3>
+                    <ul id="recommendationsList" class="recommendations"></ul>
+                </div>
+            </div>
+
+            <div class="info-panel">
+                <h3>&#127981; Industry Benchmark Comparison</h3>
+                <div id="benchmarkData"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    if (!token) {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('noToken').style.display = 'block';
+        document.getElementById('noToken').className = 'error-banner';
+        document.getElementById('noToken').innerHTML = '&#10060; Missing token. Add <code>?token=YOUR_JWT</code> to the URL.';
+        return;
     }
-  }, [token, fetchData, fetchJustCulture]);
 
-  function handleTokenSubmit(e) {
-    e.preventDefault();
-    const input = e.target.querySelector('input');
-    setTokenState(input.value);
-    setToken(input.value);
-  }
+    let allChartInstances = [];
 
-  function clearToken() {
-    localStorage.removeItem('regulator_token');
-    setTokenState('');
-    setData(null);
-    setError(null);
-    setJcHealth(null);
-    setJcTimeline(null);
-    setJcBenchmark(null);
-  }
+    function destroyCharts() {
+        allChartInstances.forEach(function(c) { try { c.destroy(); } catch(e) {} });
+        allChartInstances = [];
+    }
 
-  if (!token) {
-    return (
-      <div>
-        <div className="app-header"><h1>Regulator Safety Dashboard</h1><span className="meta">ICAO Annex 19</span></div>
-        <div className="token-bar">
-          <span>Enter regulator JWT token:</span>
-          <form onSubmit={handleTokenSubmit} style={{ display:'flex', gap:8, flex:1 }}>
-            <input type="text" placeholder="eyJhbGciOiJIUzI1NiIs..." style={{ flex:1 }} />
-            <button type="submit" className="btn">Connect</button>
-          </form>
-        </div>
-      </div>
-    );
-  }
+    function newChart(id, config) {
+        var canvas = document.getElementById(id);
+        if (!canvas) return null;
+        var chart = new Chart(canvas.getContext('2d'), config);
+        allChartInstances.push(chart);
+        return chart;
+    }
 
-  return (
-    <div>
-      <div className="app-header">
-        <h1>Regulator Safety Dashboard</h1>
-        <span className="meta">ICAO Annex 19 — Safety Management System</span>
-      </div>
-      <div className="token-bar">
-        <span>Token: {token.slice(0,20)}...</span>
-        <button className="btn-secondary" onClick={clearToken}>Disconnect</button>
-        <button className="btn-secondary" onClick={() => { fetchData(); fetchJustCulture(); }} disabled={loading || jcLoading}>Refresh</button>
-      </div>
-      <div className="tabs">
-        <button className={'tab' + (tab === 'overview' ? ' active' : '')} onClick={() => setTab('overview')}>SPI Overview</button>
-        <button className={'tab' + (tab === 'just-culture' ? ' active' : '')} onClick={() => setTab('just-culture')}>Just Culture Metrics</button>
-      </div>
-      <div className="dashboard" ref={reportRef}>
-        {loading && <div className="loading"><div className="spinner"></div><p>Loading SPI data...</p></div>}
-        {error && !loading && tab === 'overview' && (
-          <div className="error-state">
-            <h2>Failed to load dashboard</h2>
-            <p>{error}</p>
-            <button className="btn" onClick={fetchData}>Retry</button>
-            <button className="btn-secondary" onClick={clearToken} style={{marginLeft:8}}>Change Token</button>
-          </div>
-        )}
-        {!loading && !error && data && tab === 'overview' && <DashboardContent data={data} reportRef={reportRef} exporting={exporting} setExporting={setExporting} jcHealth={jcHealth} />}
-        {!loading && !error && !data && tab === 'overview' && <div className="empty-state"><h2>No data available</h2><p>Click Refresh to load SPI data</p></div>}
-        {tab === 'just-culture' && <JustCultureMetrics health={jcHealth} timeline={jcTimeline} benchmark={jcBenchmark} loading={jcLoading} token={token} />}
-      </div>
-    </div>
-  );
-}
+    async function api(url) {
+        var res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token } });
+        if (res.status === 401) throw new Error('Invalid or expired token — generate a new regulator JWT');
+        if (res.status === 403) throw new Error('Access denied — regulator role required');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+    }
 
-function DashboardContent({ data, reportRef, exporting, setExporting, jcHealth }) {
-  const { summary, trends, by_tenant } = data;
-  const hasSignals = summary.total_signals > 0;
-  const hasAlerts = summary.total_alerts > 0;
-  const hasTrends = trends.monthly_signals && trends.monthly_signals.length > 0;
+    function showLoading(msg) {
+        document.getElementById('loading').style.display = 'block';
+        document.getElementById('loading').textContent = msg || 'Loading…';
+        document.getElementById('errorMsg').style.display = 'none';
+        document.getElementById('dashboardContent').style.display = 'none';
+    }
 
-  async function exportPDF() {
-    setExporting(true);
-    try {
-      const { jsPDF } = window.jspdf;
-      const doc = new jsPDF('landscape', 'mm', 'a4');
-      const pageW = 297;
-      let y = 16;
+    function showError(msg) {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('errorMsg').style.display = 'block';
+        document.getElementById('errorMsg').innerHTML = '&#9888;&#65039; ' + msg;
+    }
 
-      doc.setFontSize(18); doc.setTextColor(26,26,46);
-      doc.text('SAFETY PERFORMANCE DASHBOARD', pageW/2, y, { align:'center' }); y += 10;
-      doc.setFontSize(10); doc.setTextColor(100,100,100);
-      doc.text('ICAO Annex 19 — Safety Management System (SMS) — Aggregated SPI Report', pageW/2, y, { align:'center' }); y += 6;
-      doc.text('Generated: ' + new Date().toISOString().split('T')[0] + ' | Period: ' + (summary.period ? (summary.period.from || 'N/A') + ' to ' + (summary.period.to || 'N/A') : 'N/A'), pageW/2, y, { align:'center' }); y += 10;
+    function showDashboard() {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('errorMsg').style.display = 'none';
+        document.getElementById('dashboardContent').style.display = 'block';
+    }
 
-      doc.setFontSize(11); doc.setTextColor(26,26,46);
-      doc.text('Overall Summary', 14, y); y += 6;
-      doc.setFontSize(9);
-      const sumLines = [
-        ['Total Signals', String(summary.total_signals), 'Total Tenants', String(summary.total_tenants)],
-        ['Avg Risk Level', String(summary.avg_risk_level), 'Total Alerts', String(summary.total_alerts)],
-        ['Open Alerts', String(summary.open_alerts), 'Period', (summary.period ? (summary.period.from||'') + ' — ' + (summary.period.to||'') : 'N/A')],
-      ];
-      sumLines.forEach(row => {
-        doc.text(row[0], 14, y); doc.text(row[1], 60, y);
-        doc.text(row[2], 110, y); doc.text(row[3], 160, y);
-        y += 5;
-      });
-      y += 4;
+    async function loadDashboard() {
+        showLoading('Loading SPI and Just Culture data…');
+        try {
+            var [spiData, trendsData, tenantsData, jcHealth, jcTimeline, jcBenchmark] = await Promise.all([
+                api('/api/regulator/spis'),
+                api('/api/regulator/trends?months=12'),
+                api('/api/regulator/tenants'),
+                api('/api/just-culture/health'),
+                api('/api/just-culture/timeline?months=12'),
+                api('/api/just-culture/benchmark')
+            ]);
 
-      if (summary.by_type && summary.by_type.length) {
-        doc.setFontSize(11); doc.text('Signals by Type', 14, y); y += 6; doc.setFontSize(9);
-        summary.by_type.forEach(t => { doc.text('  ' + t.type + ': ' + t.count + ' (' + Math.round(t.count/summary.total_signals*100) + '%)', 14, y); y += 5; });
-        y += 2;
-      }
+            showDashboard();
+            renderSPI(spiData, trendsData, tenantsData);
+            renderJustCulture(jcHealth, jcTimeline, jcBenchmark);
+            setupTabs();
+            setupPDF(spiData, trendsData, tenantsData);
 
-      if (summary.alerts_by_level && summary.alerts_by_level.length) {
-        doc.setFontSize(11); doc.text('Alerts by Level', 14, y); y += 6; doc.setFontSize(9);
-        summary.alerts_by_level.forEach(a => { doc.text('  ' + a.level + ': ' + a.count, 14, y); y += 5; });
-        y += 4;
-      }
+        } catch (err) {
+            console.error(err);
+            showError('Failed to load dashboard: ' + err.message + '. Check that the backend is running and your token is valid.');
+        }
+    }
 
-      if (by_tenant && by_tenant.length) {
-        doc.setFontSize(11); doc.text('Per-Tenant Comparison (Aggregated Counts Only)', 14, y); y += 7; doc.setFontSize(8);
-        doc.setFillColor(240,242,245); doc.rect(14, y-2, 180, 5, 'F');
-        doc.text('Tenant', 14, y); doc.text('Signals', 70, y); doc.text('Avg Risk', 100, y); doc.text('Alerts', 130, y); doc.text('Types', 150, y);
-        y += 5;
-        by_tenant.forEach(t => {
-          const types = (t.by_type || []).map(bt => bt.type + ': ' + bt.count).join(', ');
-          doc.text(t.tenant_id.slice(0,8)+'...', 14, y); doc.text(String(t.total_signals), 70, y);
-          doc.text(String(t.avg_risk), 100, y); doc.text(String(t.total_alerts), 130, y); doc.text(types, 150, y);
-          y += 5;
-          if (y > 190) { doc.addPage(); y = 16; }
+    // ---- SPI Tab ----
+
+    function renderSPI(summary, trends, tenants) {
+        destroyCharts();
+
+        // Summary cards
+        var periodStr = '—';
+        if (summary.period && summary.period.from) {
+            periodStr = summary.period.from + ' to ' + summary.period.to;
+        }
+        document.getElementById('summaryCards').innerHTML =
+            '<div class="card"><h3>Total Signals</h3><div class="value">' + (summary.total_signals || 0) + '</div><div class="sub">Across ' + (summary.total_tenants || 0) + ' tenant(s)</div></div>' +
+            '<div class="card"><h3>Avg Risk Level</h3><div class="value">' + (summary.avg_risk_level || 0) + '</div><div class="sub">Severity &#215; Probability</div></div>' +
+            '<div class="card"><h3>Total Alerts</h3><div class="value">' + (summary.total_alerts || 0) + '</div><div class="sub">' + (summary.open_alerts || 0) + ' open</div></div>' +
+            '<div class="card"><h3>Report Period</h3><div class="value">' + periodStr + '</div><div class="sub">Earliest &#8594; Latest</div></div>';
+
+        // Signals by Type (bar)
+        var byType = summary.by_type || [];
+        newChart('signalsByTypeChart', {
+            type: 'bar',
+            data: {
+                labels: byType.map(function(d) { return d.type; }),
+                datasets: [{ label: 'Count', data: byType.map(function(d) { return d.count; }), backgroundColor: '#2c7da0', borderRadius: 4 }]
+            },
+            options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } }, x: { grid: { display: false } } } }
         });
-        y += 4;
-      }
 
-      doc.setFontSize(7); doc.setTextColor(150,150,150);
-      doc.text('This report contains aggregated Safety Performance Indicator (SPI) data only. No personally identifiable information or raw signal data is included.', 14, 195);
-      doc.text('Confidential — For authorized regulatory use only.', 14, 199);
-      doc.save('annex19-safety-dashboard-' + new Date().toISOString().split('T')[0] + '.pdf');
-    } catch (e) { alert('PDF export error: ' + e.message); }
-    finally { setExporting(false); }
-  }
+        // Alerts by Level (doughnut)
+        var alertsByLevel = summary.alerts_by_level || [];
+        var alertColors = { 'LOW': '#2ecc71', 'MEDIUM': '#f39c12', 'HIGH': '#e67e22', 'CRITICAL': '#e74c3c' };
+        newChart('alertsByLevelChart', {
+            type: 'doughnut',
+            data: {
+                labels: alertsByLevel.map(function(d) { return d.level; }),
+                datasets: [{ data: alertsByLevel.map(function(d) { return d.count; }), backgroundColor: alertsByLevel.map(function(d) { return alertColors[d.level] || '#95a5a6'; }) }]
+            },
+            options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 8, font: { size: 11 } } } } }
+        });
 
-  return (
-    <div>
-      <div className="export-bar">
-        <button className="btn" onClick={exportPDF} disabled={exporting}>{exporting ? 'Generating PDF...' : 'Export PDF (Annex 19)'}</button>
-      </div>
+        // Monthly Signal Trends (line)
+        var monthlySignals = (trends && trends.monthly_signals) || [];
+        newChart('trendChart', {
+            type: 'line',
+            data: {
+                labels: monthlySignals.map(function(d) { return d.month; }),
+                datasets: [{ label: 'Signals', data: monthlySignals.map(function(d) { return d.count; }), borderColor: '#2c7da0', backgroundColor: '#2c7da022', fill: true, tension: 0.3, pointRadius: 3 }]
+            },
+            options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } }, x: { grid: { display: false } } } }
+        });
 
-      <div className="cards">
-        <div className="card"><div className="label">Total Signals</div><div className="value">{summary.total_signals}</div><div className="sub">Across {summary.total_tenants} tenant(s)</div></div>
-        <div className="card"><div className="label">Avg Risk Level</div><div className="value">{summary.avg_risk_level}</div><div className="sub">Severity × Probability</div></div>
-        <div className="card"><div className="label">Total Alerts</div><div className="value">{summary.total_alerts}</div><div className="sub">{summary.open_alerts} open</div></div>
-        <div className="card"><div className="label">Report Period</div><div className="value">{summary.period ? (summary.period.from || '—') : '—'}</div><div className="sub">to {summary.period ? (summary.period.to || '—') : '—'}</div></div>
-      </div>
+        // Monthly Avg Risk Level (line)
+        var monthlyRisk = (trends && trends.monthly_risk_avg) || [];
+        newChart('riskTrendChart', {
+            type: 'line',
+            data: {
+                labels: monthlyRisk.map(function(d) { return d.month; }),
+                datasets: [{ label: 'Avg Risk', data: monthlyRisk.map(function(d) { return d.avg_risk; }), borderColor: '#e94560', backgroundColor: '#e9456022', fill: true, tension: 0.3, pointRadius: 3 }]
+            },
+            options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true }, x: { grid: { display: false } } } }
+        });
 
-      <div className="charts-row">
-        <ChartCard title="Signals by Type">
-          {hasSignals ? <BarChart data={summary.by_type} labelKey="type" valueKey="count" color="#0f3460" /> : <NoData />}
-        </ChartCard>
-        <ChartCard title="Severity Distribution (1–5)">
-          {hasSignals ? <BarChart data={summary.severity_distribution} labelKey="severity" valueKey="count" color="#e94560" /> : <NoData />}
-        </ChartCard>
-        <ChartCard title="Alerts by Level">
-          {hasAlerts ? <DoughnutChart data={summary.alerts_by_level} labelKey="level" valueKey="count" /> : <NoData />}
-        </ChartCard>
-      </div>
+        // Tenant table
+        var tenantList = tenants || [];
+        if (tenantList.length) {
+            var html = '<table class="tenant-table"><thead><tr><th>Tenant</th><th>Signals</th><th>Avg Risk</th><th>Alerts</th><th>By Type</th></tr></thead><tbody>';
+            tenantList.forEach(function(t) {
+                var types = (t.by_type || []).map(function(bt) { return bt.type + ': ' + bt.count; }).join(', ');
+                html += '<tr><td style="font-family:monospace;font-size:12px">' + (t.tenant_id || '').slice(0, 8) + '…</td>' +
+                    '<td>' + (t.total_signals || 0) + '</td>' +
+                    '<td>' + (t.avg_risk || 0) + '</td>' +
+                    '<td>' + (t.total_alerts || 0) + '</td>' +
+                    '<td>' + (types || '—') + '</td></tr>';
+            });
+            html += '</tbody></table>';
+            document.getElementById('tenantTable').innerHTML = html;
+        } else {
+            document.getElementById('tenantTable').innerHTML = '<div class="no-data">No tenant data available</div>';
+        }
+    }
 
-      <div className="charts-row">
-        <ChartCard title="Monthly Signal Trends (12 months)">
-          {hasTrends ? <LineChart data={trends.monthly_signals} labelKey="month" valueKey="count" color="#0f3460" /> : <NoData />}
-        </ChartCard>
-        <ChartCard title="Monthly Avg Risk Level">
-          {trends.monthly_risk_avg && trends.monthly_risk_avg.length ? <LineChart data={trends.monthly_risk_avg} labelKey="month" valueKey="avg_risk" color="#e94560" /> : <NoData />}
-        </ChartCard>
-      </div>
+    // ---- Just Culture Tab ----
 
-      {jcHealth && (
-        <div className="just-culture-widget">
-          <h3 style={{fontSize:14, color:'#333', marginBottom:12}}>Just Culture Health (ICAO Doc 10959)</h3>
-          <div className="jc-widget-grid">
-            <div className="jc-widget-card">
-              <div className="jc-label">Reporting Rate</div>
-              <div className="jc-gauge">
-                <svg width="100" height="60" viewBox="0 0 100 60">
-                  <path d="M10,55 A40,40 0 0,1 90,55" fill="none" stroke="#eee" strokeWidth="8" strokeLinecap="round"/>
-                  <path d={jcGaugeArc(jcHealth.reporting_rate)} fill="none" stroke={jcRateColor(jcHealth.reporting_rate)} strokeWidth="8" strokeLinecap="round"/>
-                </svg>
-                <div className="jc-gauge-value">{jcHealth.reporting_rate}%</div>
-              </div>
-              <div className="jc-sub">Target: {jcHealth.target_rate}%</div>
-            </div>
-            <div className="jc-widget-card">
-              <div className="jc-label">Health Score</div>
-              <div className="jc-score" style={{color: jcScoreColor(jcHealth.health_score)}}>{jcHealth.health_score}</div>
-              <div className="jc-sub">Trend: {jcHealth.trend}</div>
-            </div>
-            <div className="jc-widget-card jc-widget-wide">
-              <div className="jc-label">Top Recommendations</div>
-              <ul className="jc-recs">
-                {jcHealth.recommendations && jcHealth.recommendations.slice(0,3).map((r, i) => <li key={i}>{r}</li>)}
-              </ul>
-            </div>
-          </div>
-        </div>
-      )}
+    function renderJustCulture(health, timeline, benchmark) {
+        // Summary cards
+        var rateColor = '#1a3a5c';
+        if (health) {
+            rateColor = health.reporting_rate >= 80 ? '#2ecc71' : (health.reporting_rate >= 60 ? '#f39c12' : '#e74c3c');
+        }
+        var hsColor = '#1a3a5c';
+        if (health) {
+            hsColor = health.health_score >= 80 ? '#2ecc71' : (health.health_score >= 60 ? '#f39c12' : '#e74c3c');
+        }
 
-      <h3 style={{fontSize:14, color:'#333', marginBottom:8}}>Per-Tenant Aggregated SPI Data</h3>
-      {by_tenant && by_tenant.length ? (
-        <table>
-          <thead><tr><th>Tenant</th><th>Total Signals</th><th>Avg Risk</th><th>Total Alerts</th><th>By Type</th></tr></thead>
-          <tbody>
-            {by_tenant.map((t, i) => (
-              <tr key={i}>
-                <td style={{fontFamily:'monospace', fontSize:12}}>{t.tenant_id.slice(0,8)}…</td>
-                <td>{t.total_signals}</td>
-                <td>{t.avg_risk}</td>
-                <td>{t.total_alerts}</td>
-                <td>{(t.by_type || []).map(bt => bt.type + ': ' + bt.count).join(', ') || '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : <div className="no-data">No tenant data available</div>}
-    </div>
-  );
-}
+        document.getElementById('jcCards').innerHTML =
+            '<div class="card"><h3>Reporting Rate</h3><div class="value" style="color:' + rateColor + '">' + (health ? health.reporting_rate + '%' : '—') + '</div><div class="sub">Target: ' + (health ? health.target_rate + '%' : '—') + ' &middot; ' + (health ? health.actual_voluntary + ' / ' + health.expected_voluntary + ' expected' : '') + '</div></div>' +
+            '<div class="card"><h3>Health Score</h3><div class="value" style="color:' + hsColor + '">' + (health ? health.health_score : '—') + '</div><div class="sub">Trend: ' + (health ? health.trend : '—') + '</div></div>' +
+            '<div class="card"><h3>Diversity Score</h3><div class="value">' + (health ? health.diversity_score : '—') + '</div><div class="sub">Distinct reporter roles</div></div>' +
+            '<div class="card"><h3>Trend Score</h3><div class="value">' + (health ? health.trend_score : '—') + '</div><div class="sub">6-month comparison</div></div>';
 
-function ChartCard({ title, children }) {
-  return <div className="chart-card"><h3>{title}</h3><div className="chart-wrapper">{children}</div></div>;
-}
+        // Voluntary reports timeline
+        var tl = (timeline && timeline.timeline) || [];
+        var tlMonths = [];
+        var tlCounts = [];
+        var tlSeen = {};
+        tl.forEach(function(d) {
+            if (!tlSeen[d.month]) {
+                tlSeen[d.month] = 0;
+            }
+            tlSeen[d.month] += d.count;
+        });
+        var sorted = Object.keys(tlSeen).sort();
+        sorted.forEach(function(m) {
+            tlMonths.push(m);
+            tlCounts.push(tlSeen[m]);
+        });
 
-function NoData() {
-  return <div className="no-data" style={{paddingTop:80}}>No data</div>;
-}
+        newChart('voluntaryTimelineChart', {
+            type: 'bar',
+            data: {
+                labels: tlMonths.length ? tlMonths : ['No data'],
+                datasets: [{ label: 'Voluntary Reports', data: tlCounts.length ? tlCounts : [0], backgroundColor: '#2ecc71', borderRadius: 4 }]
+            },
+            options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } }, x: { grid: { display: false } } } }
+        });
 
-// ----- Just Culture Helper Functions -----
+        // Per-tenant reporting rate
+        var tenantRates = (benchmark && benchmark.tenant_rates) || [];
+        newChart('tenantRateChart', {
+            type: 'bar',
+            data: {
+                labels: tenantRates.length ? tenantRates.map(function(t) { return (t.tenant_id || '').slice(0, 8); }) : ['No data'],
+                datasets: [{ label: 'Reporting Rate %', data: tenantRates.length ? tenantRates.map(function(t) { return t.reporting_rate; }) : [0], backgroundColor: '#0db39e', borderRadius: 4 }]
+            },
+            options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, max: 100 }, x: { grid: { display: false } } } }
+        });
 
-function jcGaugeArc(pct) {
-  const ratio = Math.min(pct, 100) / 100;
-  const angle = Math.PI * ratio;
-  const r = 40, cx = 50, cy = 55;
-  const sx = cx - r * Math.cos(Math.PI), sy = cy - r * Math.sin(Math.PI);
-  const ex = cx - r * Math.cos(Math.PI - angle), ey = cy - r * Math.sin(Math.PI - angle);
-  const large = ratio > 0.5 ? 1 : 0;
-  return 'M' + sx + ',' + sy + ' A' + r + ',' + r + ' 0 ' + large + ',1 ' + ex + ',' + ey;
-}
+        // Component breakdown
+        var breakdownHtml = '';
+        if (health) {
+            breakdownHtml =
+                '<table class="tenant-table"><thead><tr><th>Component</th><th>Value</th><th>Weight</th><th>Contribution</th></tr></thead><tbody>' +
+                '<tr><td>Reporting Rate</td><td>' + health.reporting_rate + '%</td><td>60%</td><td>' + (health.reporting_rate * 0.6).toFixed(1) + '</td></tr>' +
+                '<tr><td>Trend Score</td><td>' + health.trend_score + '</td><td>20%</td><td>' + (health.trend_score * 0.2).toFixed(1) + '</td></tr>' +
+                '<tr><td>Diversity Score</td><td>' + health.diversity_score + '</td><td>20%</td><td>' + (health.diversity_score * 0.2).toFixed(1) + '</td></tr>' +
+                '<tr style="font-weight:700;background:#f8f9fa"><td>Health Score</td><td>' + health.health_score + '</td><td>100%</td><td>' + health.health_score + '</td></tr>' +
+                '</tbody></table>';
+        }
+        document.getElementById('componentBreakdown').innerHTML = breakdownHtml || '<div class="no-data">No health data</div>';
 
-function jcRateColor(pct) {
-  if (pct >= 80) return '#2ecc71';
-  if (pct >= 60) return '#f39c12';
-  return '#e74c3c';
-}
+        // Recommendations
+        var recs = (health && health.recommendations) || [];
+        document.getElementById('recommendationsList').innerHTML = recs.length
+            ? recs.map(function(r) { return '<li>' + r + '</li>'; }).join('')
+            : '<li>No recommendations available</li>';
 
-function jcScoreColor(score) {
-  if (score >= 80) return '#2ecc71';
-  if (score >= 60) return '#f39c12';
-  return '#e74c3c';
-}
+        // Benchmark
+        var benchHtml = '';
+        if (benchmark) {
+            var icaoOK = benchmark.industry_average_reporting_rate >= 80;
+            benchHtml =
+                '<table class="tenant-table"><thead><tr><th>Metric</th><th>Value</th><th>Status</th></tr></thead><tbody>' +
+                '<tr><td>Industry Avg Reporting Rate</td><td><strong>' + benchmark.industry_average_reporting_rate + '%</strong></td><td style="color:' + (icaoOK ? '#2ecc71' : '#e74c3c') + '">' + (icaoOK ? '&#10003; Meets ICAO target' : '&#10007; Below target') + '</td></tr>' +
+                '<tr><td>Best-in-Class Rate</td><td><strong>' + benchmark.best_in_class_rate + '%</strong></td><td style="color:#2ecc71">&#9733; Top performer</td></tr>' +
+                '<tr><td>ICAO Benchmark (Doc 10959)</td><td><strong>' + benchmark.icao_benchmark + '%</strong></td><td>Target threshold</td></tr>' +
+                '<tr><td>Total Tenants Reporting</td><td><strong>' + benchmark.total_tenants + '</strong></td><td>—</td></tr>' +
+                '</tbody></table>';
+        }
+        document.getElementById('benchmarkData').innerHTML = benchHtml || '<div class="no-data">No benchmark data available</div>';
+    }
 
-function JustCultureMetrics({ health, timeline, benchmark, loading, token }) {
-  if (loading) return <div className="loading"><div className="spinner"></div><p>Loading Just Culture data...</p></div>;
+    // ---- Tabs ----
 
-  return (
-    <div>
-      <h2 style={{fontSize:18, color:'#1a1a2e', marginBottom:16}}>Just Culture Metrics <span style={{fontSize:13, color:'#999', fontWeight:400}}>ICAO Doc 10959</span></h2>
+    function setupTabs() {
+        document.querySelectorAll('.tab').forEach(function(tab) {
+            tab.addEventListener('click', function() {
+                document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+                tab.classList.add('active');
+                document.getElementById('spiTab').style.display = tab.dataset.tab === 'spi' ? 'block' : 'none';
+                document.getElementById('justTab').style.display = tab.dataset.tab === 'just' ? 'block' : 'none';
+            });
+        });
+    }
 
-      <div className="cards">
-        <div className="card">
-          <div className="label">Reporting Rate</div>
-          <div className="value" style={{color: jcRateColor(health ? health.reporting_rate : 0)}}>
-            {health ? health.reporting_rate + '%' : '—'}
-          </div>
-          <div className="sub">Target: {health ? health.target_rate + '%' : '—'} · {health ? health.actual_voluntary + ' / ' + health.expected_voluntary + ' expected' : ''}</div>
-        </div>
-        <div className="card">
-          <div className="label">Health Score</div>
-          <div className="value" style={{color: jcScoreColor(health ? health.health_score : 0)}}>
-            {health ? health.health_score : '—'}
-          </div>
-          <div className="sub">Trend: {health ? health.trend : '—'}</div>
-        </div>
-        <div className="card">
-          <div className="label">Diversity Score</div>
-          <div className="value">{health ? health.diversity_score : '—'}</div>
-          <div className="sub">Distinct reporter roles</div>
-        </div>
-        <div className="card">
-          <div className="label">Trend Score</div>
-          <div className="value">{health ? health.trend_score : '—'}</div>
-          <div className="sub">6-month comparison</div>
-        </div>
-      </div>
+    // ---- PDF Export ----
 
-      <div className="charts-row">
-        <ChartCard title="Voluntary Reports Timeline (12 months)">
-          {timeline && timeline.length ? <BarChart data={timeline} labelKey="month" valueKey="count" color="#2ecc71" /> : <NoData />}
-        </ChartCard>
-        <ChartCard title="Recommendations">
-          {health && health.recommendations && health.recommendations.length ? (
-            <div style={{padding:20}}>
-              <ul className="jc-recs" style={{fontSize:14, lineHeight:2}}>
-                {health.recommendations.map((r, i) => <li key={i}>{r}</li>)}
-              </ul>
-            </div>
-          ) : <NoData />}
-        </ChartCard>
-      </div>
+    function setupPDF(summary, trends, tenants) {
+        document.getElementById('exportPdfBtn').addEventListener('click', async function() {
+            var btn = this;
+            btn.disabled = true;
+            btn.textContent = 'Generating PDF…';
+            try {
+                var { jsPDF } = window.jspdf;
+                var doc = new jsPDF('landscape', 'mm', 'a4');
+                var pw = 297, y = 16;
 
-      <div className="charts-row">
-        <ChartCard title="Benchmark Comparison">
-          {benchmark ? (
-            <div style={{padding:20}}>
-              <table style={{marginBottom:0}}>
-                <thead><tr><th>Metric</th><th>Value</th><th>vs ICAO Target</th></tr></thead>
-                <tbody>
-                  <tr><td>Industry Avg Reporting Rate</td><td style={{fontWeight:700}}>{benchmark.industry_average_reporting_rate}%</td><td style={{color: benchmark.industry_average_reporting_rate >= 80 ? '#2ecc71' : '#e74c3c'}}>{benchmark.industry_average_reporting_rate >= 80 ? '✓' : '✗'}</td></tr>
-                  <tr><td>Best-in-Class Rate</td><td style={{fontWeight:700}}>{benchmark.best_in_class_rate}%</td><td style={{color:'#2ecc71'}}>★</td></tr>
-                  <tr><td>ICAO Benchmark</td><td style={{fontWeight:700}}>{benchmark.icao_benchmark}%</td><td>Target</td></tr>
-                  <tr><td>Total Tenants</td><td style={{fontWeight:700}}>{benchmark.total_tenants}</td><td>—</td></tr>
-                </tbody>
-              </table>
-            </div>
-          ) : <NoData />}
-        </ChartCard>
-        <ChartCard title="Per-Tenant Reporting Rate">
-          {benchmark && benchmark.tenant_rates && benchmark.tenant_rates.length ? (
-            <BarChart data={benchmark.tenant_rates.map(t => ({ ...t, label: t.tenant_id.slice(0,8) }))} labelKey="label" valueKey="reporting_rate" color="#0db39e" />
-          ) : <NoData />}
-        </ChartCard>
-      </div>
+                doc.setFontSize(18); doc.setTextColor(26, 43, 92);
+                doc.text('SAFETY PERFORMANCE DASHBOARD', pw / 2, y, { align: 'center' }); y += 10;
+                doc.setFontSize(10); doc.setTextColor(100, 100, 100);
+                doc.text('ICAO Annex 19 — Safety Management System (SMS) — Aggregated SPI Report', pw / 2, y, { align: 'center' }); y += 6;
+                doc.text('Generated: ' + new Date().toISOString().split('T')[0] + ' | Period: ' + ((summary.period ? (summary.period.from || 'N/A') : 'N/A') + ' to ' + (summary.period ? (summary.period.to || 'N/A') : 'N/A')), pw / 2, y, { align: 'center' }); y += 10;
 
-      {health && (
-        <div className="just-culture-detail">
-          <h3 style={{fontSize:14, color:'#333', marginBottom:12}}>Component Details</h3>
-          <table>
-            <thead><tr><th>Component</th><th>Value</th><th>Weight</th><th>Weighted Contribution</th></tr></thead>
-            <tbody>
-              <tr><td>Reporting Rate</td><td>{health.reporting_rate}%</td><td>60%</td><td>{(health.reporting_rate * 0.6).toFixed(1)}</td></tr>
-              <tr><td>Trend Score</td><td>{health.trend_score}</td><td>20%</td><td>{(health.trend_score * 0.2).toFixed(1)}</td></tr>
-              <tr><td>Diversity Score</td><td>{health.diversity_score}</td><td>20%</td><td>{(health.diversity_score * 0.2).toFixed(1)}</td></tr>
-              <tr style={{fontWeight:700, background:'#f8f9fa'}}><td>Health Score</td><td>{health.health_score}</td><td>100%</td><td>{health.health_score}</td></tr>
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
+                // Summary
+                doc.setFontSize(11); doc.setTextColor(26, 43, 92);
+                doc.text('Overall Summary', 14, y); y += 6; doc.setFontSize(9);
+                [
+                    ['Total Signals', String(summary.total_signals || 0), 'Total Tenants', String(summary.total_tenants || 0)],
+                    ['Avg Risk Level', String(summary.avg_risk_level || 0), 'Total Alerts', String(summary.total_alerts || 0)],
+                    ['Open Alerts', String(summary.open_alerts || 0), 'Period', ((summary.period ? (summary.period.from || '') : '') + ' — ' + (summary.period ? (summary.period.to || '') : ''))]
+                ].forEach(function(row) {
+                    doc.text(row[0], 14, y); doc.text(row[1], 60, y);
+                    doc.text(row[2], 110, y); doc.text(row[3], 160, y); y += 5;
+                });
+                y += 4;
 
-// ----- Chart Components -----
+                // By type
+                var byType = summary.by_type || [];
+                if (byType.length) {
+                    doc.setFontSize(11); doc.text('Signals by Type', 14, y); y += 6; doc.setFontSize(9);
+                    byType.forEach(function(t) { doc.text('  ' + t.type + ': ' + t.count + ' (' + Math.round(t.count / summary.total_signals * 100) + '%)', 14, y); y += 5; });
+                    y += 2;
+                }
 
-function BarChart({ data, labelKey, valueKey, color }) {
-  const canvas = useRef(null);
-  const chartRef = useRef(null);
-  useEffect(() => {
-    if (!canvas.current || !data || !data.length) return;
-    if (chartRef.current) chartRef.current.destroy();
-    const ctx = canvas.current.getContext('2d');
-    chartRef.current = new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels: data.map(d => d[labelKey]),
-        datasets: [{ label: valueKey, data: data.map(d => d[valueKey]), backgroundColor: color, borderRadius: 4 }]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } }, x: { grid: { display: false } } }
-      }
-    });
-    return () => { if (chartRef.current) chartRef.current.destroy(); };
-  }, [data, labelKey, valueKey, color]);
-  return <canvas ref={canvas}></canvas>;
-}
+                // Alerts
+                var alertsByLevel = summary.alerts_by_level || [];
+                if (alertsByLevel.length) {
+                    doc.setFontSize(11); doc.text('Alerts by Level', 14, y); y += 6; doc.setFontSize(9);
+                    alertsByLevel.forEach(function(a) { doc.text('  ' + a.level + ': ' + a.count, 14, y); y += 5; });
+                    y += 4;
+                }
 
-function LineChart({ data, labelKey, valueKey, color }) {
-  const canvas = useRef(null);
-  const chartRef = useRef(null);
-  useEffect(() => {
-    if (!canvas.current || !data || !data.length) return;
-    if (chartRef.current) chartRef.current.destroy();
-    const ctx = canvas.current.getContext('2d');
-    chartRef.current = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: data.map(d => d[labelKey]),
-        datasets: [{ label: valueKey, data: data.map(d => d[valueKey]), borderColor: color, backgroundColor: color + '22', fill: true, tension: 0.3, pointRadius: 3 }]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: { y: { beginAtZero: true }, x: { grid: { display: false }, ticks: { maxTicksLimit: 12 } } }
-      }
-    });
-    return () => { if (chartRef.current) chartRef.current.destroy(); };
-  }, [data, labelKey, valueKey, color]);
-  return <canvas ref={canvas}></canvas>;
-}
+                // Tenants
+                var tenantList = tenants || [];
+                if (tenantList.length) {
+                    doc.setFontSize(11); doc.text('Per-Tenant Comparison (Aggregated Counts Only)', 14, y); y += 7; doc.setFontSize(8);
+                    doc.setFillColor(240, 242, 245); doc.rect(14, y - 2, 180, 5, 'F');
+                    doc.text('Tenant', 14, y); doc.text('Signals', 70, y); doc.text('Avg Risk', 100, y); doc.text('Alerts', 130, y); doc.text('Types', 150, y);
+                    y += 5;
+                    tenantList.forEach(function(t) {
+                        var types = (t.by_type || []).map(function(bt) { return bt.type + ': ' + bt.count; }).join(', ');
+                        doc.text((t.tenant_id || '').slice(0, 8) + '…', 14, y); doc.text(String(t.total_signals || 0), 70, y);
+                        doc.text(String(t.avg_risk || 0), 100, y); doc.text(String(t.total_alerts || 0), 130, y); doc.text(types || '—', 150, y);
+                        y += 5;
+                        if (y > 190) { doc.addPage(); y = 16; }
+                    });
+                }
 
-function DoughnutChart({ data, labelKey, valueKey }) {
-  const canvas = useRef(null);
-  const chartRef = useRef(null);
-  useEffect(() => {
-    if (!canvas.current || !data || !data.length) return;
-    if (chartRef.current) chartRef.current.destroy();
-    const ctx = canvas.current.getContext('2d');
-    chartRef.current = new Chart(ctx, {
-      type: 'doughnut',
-      data: {
-        labels: data.map(d => d[labelKey]),
-        datasets: [{ data: data.map(d => d[valueKey]), backgroundColor: COLORS.slice(0, data.length) }]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 8, font: { size: 11 } } } }
-      }
-    });
-    return () => { if (chartRef.current) chartRef.current.destroy(); };
-  }, [data, labelKey, valueKey]);
-  return <canvas ref={canvas}></canvas>;
-}
+                doc.setFontSize(7); doc.setTextColor(150, 150, 150);
+                doc.text('Aggregated SPI data only — no PII or raw signal data included.', 14, 195);
+                doc.text('Confidential — For authorized regulatory use only.', 14, 199);
+                doc.save('annex19-safety-dashboard-' + new Date().toISOString().split('T')[0] + '.pdf');
+            } catch (e) {
+                alert('PDF export error: ' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '&#128196; Export PDF (Annex 19)';
+            }
+        });
+    }
 
-const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(<App />);
+    loadDashboard();
+})();
 </script>
 </body>
 </html>
