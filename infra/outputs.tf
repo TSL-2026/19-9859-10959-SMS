@@ -3,14 +3,9 @@ output "cloud_run_url" {
   value       = google_cloud_run_v2_service.safety_monitor.uri
 }
 
-output "cloud_sql_public_ip" {
-  description = "Public IP of the Cloud SQL instance (null if private IP only)"
-  value       = google_sql_database_instance.main.public_ip_address
-}
-
-output "cloud_sql_private_ip" {
-  description = "Private IP of the Cloud SQL instance"
-  value       = google_sql_database_instance.main.private_ip_address
+output "cloud_sql_connection_name" {
+  description = "Cloud SQL instance connection name (for Cloud SQL proxy)"
+  value       = google_sql_database_instance.main.connection_name
 }
 
 output "bucket_name" {

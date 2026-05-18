@@ -13,15 +13,19 @@ FROM node:20-alpine AS production
 
 WORKDIR /app
 
-RUN apk add --no-cache curl ca-certificates && \
-    addgroup -S app && adduser -S app -G app
+RUN apk add --no-cache curl ca-certificates
 
 COPY --from=builder /app/node_modules ./node_modules
 COPY src/ ./src/
 COPY server.js ./
 COPY public/ ./public/
 
-USER app
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup && \
+    mkdir -p /app/uploads && \
+    chown -R appuser:appgroup /app && \
+    chmod 755 /app/uploads
+
+USER appuser
 
 EXPOSE 3000
 

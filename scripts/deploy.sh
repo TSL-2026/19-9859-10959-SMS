@@ -28,18 +28,18 @@ gcloud config set project "$PROJECT_ID"
 # --------------------------------------------------
 # 2. Enable required APIs
 # --------------------------------------------------
-echo ""
-echo "--- [2/7] Enabling required APIs ---"
-gcloud services enable \
-  cloudrun.googleapis.com \
-  sqladmin.googleapis.com \
-  secretmanager.googleapis.com \
-  storage.googleapis.com \
-  vpcaccess.googleapis.com \
-  cloudbuild.googleapis.com \
-  iamcredentials.googleapis.com \
-  monitoring.googleapis.com \
-  --project="$PROJECT_ID"
+#echo ""
+#echo "--- [2/7] Enabling required APIs ---"
+#gcloud services enable \
+ # cloudrun.googleapis.com \
+  #sqladmin.googleapis.com \
+  #secretmanager.googleapis.com \
+  #storage.googleapis.com \
+  #vpcaccess.googleapis.com \
+  #cloudbuild.googleapis.com \
+  #iamcredentials.googleapis.com \
+  #monitoring.googleapis.com \
+  #--project="$PROJECT_ID"
 
 # --------------------------------------------------
 # 3. Terraform — provision infrastructure

@@ -1,16 +1,16 @@
 const { Router } = require('express');
 const multer = require('multer');
+const { regulatorAuth } = require('../../middleware/regulatorAuth');
 const { authenticate } = require('../../middleware/auth');
 const pool = require('../../db/pool');
 const logger = require('../../services/logger');
-const excelParser = require('../../services/excelParser');
 const alertEngine = require('../../services/alertEngine');
 const piiAnonymizer = require('../../services/piiAnonymizer');
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
-async function storeSignal(req, signal) {
+async function storeSignal(signal, tenantId, userRole) {
   const { redactedSignal, encryptedData } = piiAnonymizer.extractAndRedact(signal);
 
   const isVoluntary = signal.is_voluntary !== undefined ? signal.is_voluntary : redactedSignal.report_type === 'VSR';
@@ -22,7 +22,7 @@ async function storeSignal(req, signal) {
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      RETURNING *`,
     [
-      req.tenant_id,
+      tenantId,
       redactedSignal.report_id,
       redactedSignal.report_type,
       redactedSignal.occurrence_date,
@@ -38,64 +38,57 @@ async function storeSignal(req, signal) {
   const insertedSignal = rows[0];
 
   if (encryptedData) {
-    await pool.query('SELECT set_user_role($1)', [req.user.role || 'member']);
+    await pool.query('SELECT set_user_role($1)', [userRole || 'member']);
     await pool.query(
       `INSERT INTO pii_store (tenant_id, signal_id, encrypted_pii)
        VALUES ($1, $2, $3)`,
-      [req.tenant_id, insertedSignal.id, JSON.stringify(encryptedData)]
+      [tenantId, insertedSignal.id, JSON.stringify(encryptedData)]
     );
   }
 
   return insertedSignal;
 }
 
-router.post('/import/excel', authenticate, upload.single('file'), async (req, res, next) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'No file uploaded' });
-  }
-
-  await pool.query('SELECT set_tenant_context($1)', [req.tenant_id]);
-
-  let importRecord;
+router.post('/import/excel', regulatorAuth, upload.single('file'), async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      `INSERT INTO excel_imports (tenant_id, filename, status)
-       VALUES ($1, $2, 'processing') RETURNING *`,
-      [req.tenant_id, req.file.originalname]
-    );
-    importRecord = rows[0];
-
-    const { reportType, signals } = excelParser.parse(
-      req.file.buffer,
-      req.file.originalname
-    );
-
-    const inserted = [];
-    for (const signal of signals) {
-      const s = await storeSignal(req, signal);
-      inserted.push(s);
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    for (const signal of inserted) {
-      await alertEngine.evaluateSignal(signal, req.tenant_id).catch((err) => {
-        logger.error('Alert engine error during import', { error: err.message, signalId: signal.id });
+    const tenantId = req.body.tenant_id;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'tenant_id is required in request body' });
+    }
+
+    const reportTypeOverride = req.body.report_type || null;
+
+    const { parseExcelFile } = require('../../services/excelParser');
+    const result = await parseExcelFile(req.file.buffer, tenantId);
+
+    const insertedSignals = [];
+    for (const signal of result.signals) {
+      if (reportTypeOverride && signal.report_type === 'VSR') {
+        signal.report_type = reportTypeOverride;
+      }
+      signal.is_voluntary = signal.report_type === 'VSR';
+      const inserted = await storeSignal(signal, tenantId, req.user.role);
+      insertedSignals.push(inserted);
+
+      alertEngine.evaluateSignal(inserted, tenantId).catch((err) => {
+        logger.error('Alert engine error during import', { error: err.message, signalId: inserted.id });
       });
     }
 
-    await pool.query(
-      `UPDATE excel_imports SET status = 'completed', row_count = $1 WHERE id = $2`,
-      [inserted.length, importRecord.id]
-    );
-
-    res.json({ import: { id: importRecord.id, filename: req.file.originalname, row_count: inserted.length, status: 'completed' }, signals: inserted });
-  } catch (err) {
-    if (importRecord) {
-      await pool.query(
-        `UPDATE excel_imports SET status = 'failed', error_log = $1::jsonb WHERE id = $2`,
-        [JSON.stringify([err.message]), importRecord.id]
-      );
-    }
-    next(err);
+    res.json({
+      success: true,
+      sheets_processed: result.sheets_processed,
+      total_signals_imported: result.total_signals_imported,
+      by_type: result.by_type,
+      errors: result.errors,
+    });
+  } catch (error) {
+    console.error('Excel import error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -119,7 +112,7 @@ router.post('/signals', authenticate, async (req, res, next) => {
 
     await pool.query('SELECT set_tenant_context($1)', [req.tenant_id]);
 
-    const signal = await storeSignal(req, {
+    const signal = await storeSignal({
       report_id: report_id || '',
       report_type,
       occurrence_date: occurrence_date || null,
@@ -129,7 +122,7 @@ router.post('/signals', authenticate, async (req, res, next) => {
       description_raw: description_raw || '',
       reporter_role: reporter_role || null,
       is_voluntary: is_voluntary !== undefined ? is_voluntary : report_type === 'VSR',
-    });
+    }, req.tenant_id, req.user.role);
 
     alertEngine.evaluateSignal(signal, req.tenant_id).catch((err) => {
       logger.error('Alert engine error', { error: err.message, signalId: signal.id });

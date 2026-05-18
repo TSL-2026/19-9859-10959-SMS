@@ -1,0 +1,8 @@
+project_id         = "safety-monitor-2026"
+region             = "us-central1"
+environment        = "dev"
+db_password        = "4nVImW3n4ciMgajL3OgO"
+jwt_secret         = "W1vlrADOcozEAcJQ8bVwQxul6BBc6lUi"
+encryption_key     = "o6MWVhZaI17ffW0UAGzoOO9xcroT0CGf"
+budget_alert_email = "admin@example.com"
+billing_account_id = "null"

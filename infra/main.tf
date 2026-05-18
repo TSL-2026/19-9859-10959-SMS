@@ -1,18 +1,17 @@
 terraform {
-  required_version = ">= 1.5"
+  required_version = ">= 1.0"
   required_providers {
     google = {
       source  = "hashicorp/google"
       version = "~> 5.0"
     }
-    random = {
-      source  = "hashicorp/random"
-      version = "~> 3.6"
+    google-beta = {
+      source  = "hashicorp/google-beta"
+      version = "~> 5.0"
     }
   }
   backend "gcs" {
-    # bucket = "safety-monitor-tfstate"
-    # prefix = "terraform/state"
+    # Bucket name will be provided during deployment
   }
 }
 
@@ -21,186 +20,222 @@ provider "google" {
   region  = var.region
 }
 
-# ---------------------------------------------------------------------------
-# VPC network — private networking for Cloud SQL + Cloud Run
-# ---------------------------------------------------------------------------
+provider "google-beta" {
+  project = var.project_id
+  region  = var.region
+}
+
+# ============================================
+# VPC NETWORK (for private Cloud SQL)
+# ============================================
 resource "google_compute_network" "main" {
-  name                    = "safety-monitor-vpc"
+  name                    = "${var.project_id}-vpc"
   auto_create_subnetworks = false
 }
 
 resource "google_compute_subnetwork" "main" {
-  name          = "safety-monitor-subnet"
-  network       = google_compute_network.main.id
+  name          = "${var.project_id}-subnet"
+  ip_cidr_range = "10.0.0.0/24"
   region        = var.region
-  ip_cidr_range = "10.8.0.0/28"
+  network       = google_compute_network.main.id
+
   private_ip_google_access = true
 }
 
-# Serverless VPC Access connector — allows Cloud Run to reach private IPs
-resource "google_vpc_access_connector" "main" {
-  name          = "safety-monitor-connector"
-  region        = var.region
-  network       = google_compute_network.main.name
-  ip_cidr_range = "10.8.1.0/28"
-
-  min_instances = 2
-  max_instances = 3
-  machine_type  = "e2-micro"
+resource "google_compute_global_address" "private_ip_alloc" {
+  name          = "${var.project_id}-private-ip-alloc"
+  purpose       = "VPC_PEERING"
+  address_type  = "INTERNAL"
+  prefix_length = 16
+  network       = google_compute_network.main.id
 }
 
-# ---------------------------------------------------------------------------
-# Cloud SQL — PostgreSQL db-f1-micro (cheapest tier)
-# Cost: ~$8–10/month
-# ---------------------------------------------------------------------------
+resource "google_service_networking_connection" "private_vpc_connection" {
+  network                 = google_compute_network.main.id
+  service                 = "servicenetworking.googleapis.com"
+  reserved_peering_ranges = [google_compute_global_address.private_ip_alloc.name]
+}
+
+# ============================================
+# CLOUD SQL (PostgreSQL)
+# ============================================
 resource "google_sql_database_instance" "main" {
-  name             = var.cloud_sql_instance_name
+  name             = "${var.project_id}-db"
   database_version = "POSTGRES_15"
   region           = var.region
 
   settings {
     tier              = "db-f1-micro"
-    activation_policy = "ALWAYS"
-
-    disk_type    = "PD_SSD"
-    disk_size    = 10
-    disk_autoresize = false  # prevent surprise cost increases
+    disk_size         = 10
+    disk_autoresize   = false
+    disk_type         = "PD_SSD"
+    availability_type = "ZONAL"
 
     ip_configuration {
       ipv4_enabled    = false
       private_network = google_compute_network.main.id
-      require_ssl     = true
     }
 
     backup_configuration {
       enabled                        = true
+      start_time                     = "02:00"
       point_in_time_recovery_enabled = false
-      start_time                     = "03:00"
       transaction_log_retention_days = 3
       backup_retention_settings {
         retained_backups = 7
       }
     }
+
+    database_flags {
+      name  = "max_connections"
+      value = "50"
+    }
   }
 
-  deletion_protection = var.environment == "prod"
+  deletion_protection = false
+
+  depends_on = [google_service_networking_connection.private_vpc_connection]
 }
 
-resource "google_sql_database" "main" {
+resource "google_sql_database" "database" {
   name     = var.db_name
   instance = google_sql_database_instance.main.name
 }
 
-resource "google_sql_user" "main" {
+resource "google_sql_user" "app_user" {
   name     = var.db_user
   instance = google_sql_database_instance.main.name
-  password = var.db_password
+  password = random_password.db_password.result
 }
 
-# ---------------------------------------------------------------------------
-# Cloud Storage — Excel uploads with 30-day lifecycle
-# Cost: free tier covers 5GB, well within for testing
-# ---------------------------------------------------------------------------
+resource "random_password" "db_password" {
+  length  = 20
+  special = false
+}
+
+# ============================================
+# SECRET MANAGER
+# ============================================
+resource "google_secret_manager_secret" "db_password" {
+  secret_id = "DB_PASSWORD"
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "db_password" {
+  secret      = google_secret_manager_secret.db_password.id
+  secret_data = random_password.db_password.result
+}
+
+resource "google_secret_manager_secret" "jwt_secret" {
+  secret_id = "JWT_SECRET"
+  replication {
+    auto {}
+  }
+}
+
+resource "random_password" "jwt_secret" {
+  length  = 32
+  special = false
+}
+
+resource "google_secret_manager_secret_version" "jwt_secret" {
+  secret      = google_secret_manager_secret.jwt_secret.id
+  secret_data = random_password.jwt_secret.result
+}
+
+resource "google_secret_manager_secret" "encryption_key" {
+  secret_id = "ENCRYPTION_KEY"
+  replication {
+    auto {}
+  }
+}
+
+resource "random_password" "encryption_key" {
+  length  = 32
+  special = false
+}
+
+resource "google_secret_manager_secret_version" "encryption_key" {
+  secret      = google_secret_manager_secret.encryption_key.id
+  secret_data = random_password.encryption_key.result
+}
+
+resource "google_secret_manager_secret" "regulator_api_key" {
+  secret_id = "REGULATOR_API_KEY_1"
+  replication {
+    auto {}
+  }
+}
+
+resource "random_password" "regulator_api_key" {
+  length  = 32
+  special = false
+}
+
+resource "google_secret_manager_secret_version" "regulator_api_key" {
+  secret      = google_secret_manager_secret.regulator_api_key.id
+  secret_data = random_password.regulator_api_key.result
+}
+
+# ============================================
+# CLOUD STORAGE (Excel uploads)
+# ============================================
 resource "google_storage_bucket" "uploads" {
-  name          = coalesce(var.storage_bucket_name, "${var.project_id}-safety-uploads")
+  name          = "${var.project_id}-uploads"
   location      = var.region
-  storage_class = "STANDARD"
   force_destroy = true
 
   lifecycle_rule {
-    condition { age = 30 }
-    action { type = "Delete" }
-  }
-
-  versioning {
-    enabled = false
+    condition {
+      age = 30
+    }
+    action {
+      type = "Delete"
+    }
   }
 
   uniform_bucket_level_access = true
 }
 
-# ---------------------------------------------------------------------------
-# Secret Manager — all secrets, no env-var leakage
-# Cost: 4 active secrets × $0.06/secret/month = ~$0.24/month
-# ---------------------------------------------------------------------------
-resource "google_secret_manager_secret" "db_password" {
-  secret_id = "DB_PASSWORD"
-  replication { auto {} }
-}
-
-resource "google_secret_manager_secret_version" "db_password" {
-  secret      = google_secret_manager_secret.db_password.id
-  secret_data = var.db_password
-}
-
-resource "google_secret_manager_secret" "jwt_secret" {
-  secret_id = "JWT_SECRET"
-  replication { auto {} }
-}
-
-resource "google_secret_manager_secret_version" "jwt_secret" {
-  secret      = google_secret_manager_secret.jwt_secret.id
-  secret_data = var.jwt_secret
-}
-
-resource "google_secret_manager_secret" "encryption_key" {
-  secret_id = "ENCRYPTION_KEY"
-  replication { auto {} }
-}
-
-resource "google_secret_manager_secret_version" "encryption_key" {
-  secret      = google_secret_manager_secret.encryption_key.id
-  secret_data = var.encryption_key
-}
-
-resource "google_secret_manager_secret" "regulator_api_key_1" {
-  secret_id = "REGULATOR_API_KEY_1"
-  replication { auto {} }
-}
-
-resource "google_secret_manager_secret_version" "regulator_api_key_1" {
-  secret      = google_secret_manager_secret.regulator_api_key_1.id
-  secret_data = "reg-key-placeholder"
-}
-
-# ---------------------------------------------------------------------------
-# IAM — service accounts with least privilege
-# ---------------------------------------------------------------------------
+# ============================================
+# SERVICE ACCOUNT FOR CLOUD RUN
+# ============================================
 resource "google_service_account" "cloud_run" {
-  account_id   = "safety-monitor-cr"
-  display_name = "Cloud Run — Safety Monitor (${var.environment})"
+  account_id   = "${var.project_id}-cloudrun"
+  display_name = "Cloud Run Service Account"
 }
 
-resource "google_project_iam_member" "sa_secret_accessor" {
+resource "google_project_iam_member" "cloud_run_secret_access" {
   project = var.project_id
   role    = "roles/secretmanager.secretAccessor"
   member  = "serviceAccount:${google_service_account.cloud_run.email}"
 }
 
-resource "google_project_iam_member" "sa_cloudsql_client" {
+resource "google_project_iam_member" "cloud_run_sql_client" {
   project = var.project_id
   role    = "roles/cloudsql.client"
   member  = "serviceAccount:${google_service_account.cloud_run.email}"
 }
 
-resource "google_project_iam_member" "sa_storage_viewer" {
+resource "google_project_iam_member" "cloud_run_storage_viewer" {
   project = var.project_id
   role    = "roles/storage.objectViewer"
   member  = "serviceAccount:${google_service_account.cloud_run.email}"
 }
 
-# ---------------------------------------------------------------------------
-# Cloud Run — scale to zero (no traffic = no cost)
-# Cost: $0 when idle; ~$2/month for light testing traffic
-# ---------------------------------------------------------------------------
+# ============================================
+# CLOUD RUN SERVICE
+# ============================================
 resource "google_cloud_run_v2_service" "safety_monitor" {
-  name     = var.cloud_run_service_name
+  name     = var.service_name
   location = var.region
+  ingress  = "INGRESS_TRAFFIC_ALL"
 
   template {
-    service_account = google_service_account.cloud_run.email
-    timeout         = "300s"
-    concurrency     = 80
+    max_instance_request_concurrency = 80
+    timeout                          = "300s"
 
     scaling {
       min_instance_count = 0
@@ -208,11 +243,7 @@ resource "google_cloud_run_v2_service" "safety_monitor" {
     }
 
     containers {
-      image = "${var.region}-docker.pkg.dev/${var.project_id}/cloud-run-source-deploy/${var.cloud_run_service_name}:latest"
-
-      ports {
-        container_port = 3000
-      }
+      image = "gcr.io/${var.project_id}/safety-monitor:latest"
 
       resources {
         limits = {
@@ -222,32 +253,19 @@ resource "google_cloud_run_v2_service" "safety_monitor" {
       }
 
       env {
-        name  = "PORT"
-        value = "3000"
+        name  = "DB_HOST"
+        value = "/cloudsql/${google_sql_database_instance.main.connection_name}"
       }
-
-      env {
-        name  = "NODE_ENV"
-        value = "production"
-      }
-
       env {
         name  = "DB_NAME"
         value = var.db_name
       }
-
       env {
         name  = "DB_USER"
         value = var.db_user
       }
-
       env {
-        name  = "DB_HOST"
-        value = "/cloudsql/${var.project_id}:${var.region}:${var.cloud_sql_instance_name}"
-      }
-
-      env {
-        name  = "DB_PASSWORD"
+        name = "DB_PASSWORD"
         value_source {
           secret_key_ref {
             secret  = google_secret_manager_secret.db_password.secret_id
@@ -255,9 +273,8 @@ resource "google_cloud_run_v2_service" "safety_monitor" {
           }
         }
       }
-
       env {
-        name  = "JWT_SECRET"
+        name = "JWT_SECRET"
         value_source {
           secret_key_ref {
             secret  = google_secret_manager_secret.jwt_secret.secret_id
@@ -265,9 +282,8 @@ resource "google_cloud_run_v2_service" "safety_monitor" {
           }
         }
       }
-
       env {
-        name  = "ENCRYPTION_KEY"
+        name = "ENCRYPTION_KEY"
         value_source {
           secret_key_ref {
             secret  = google_secret_manager_secret.encryption_key.secret_id
@@ -275,102 +291,91 @@ resource "google_cloud_run_v2_service" "safety_monitor" {
           }
         }
       }
-
       env {
-        name  = "REGULATOR_API_KEY_1"
+        name = "REGULATOR_API_KEY_1"
         value_source {
           secret_key_ref {
-            secret  = google_secret_manager_secret.regulator_api_key_1.secret_id
+            secret  = google_secret_manager_secret.regulator_api_key.secret_id
             version = "latest"
           }
         }
       }
-
-      volume_mounts {
-        name       = "cloudsql"
-        mount_path = "/cloudsql"
+      env {
+        name  = "PORT"
+        value = "3000"
       }
     }
 
-    volumes {
-      name = "cloudsql"
-      cloud_sql_instance {
-        instances = [google_sql_database_instance.main.connection_name]
-      }
-    }
-
-    vpc_access {
-      connector = google_vpc_access_connector.main.id
-      egress    = "PRIVATE_RANGES_ONLY"
-    }
+    service_account = google_service_account.cloud_run.email
   }
 
-  lifecycle {
-    ignore_changes = [
-      template[0].containers[0].image,
-    ]
+  traffic {
+    type    = "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST"
+    percent = 100
   }
+
+  depends_on = [google_project_iam_member.cloud_run_secret_access]
 }
 
-# Public access — IAP, API keys, or unauthenticated (for testing)
+# ============================================
+# ALLOW UNAUTHENTICATED ACCESS (public endpoint)
+# ============================================
 data "google_iam_policy" "noauth" {
   binding {
     role = "roles/run.invoker"
-    members = ["allUsers"]
+    members = [
+      "allUsers",
+    ]
   }
 }
 
 resource "google_cloud_run_v2_service_iam_policy" "public" {
-  location    = google_cloud_run_v2_service.safety_monitor.location
   project     = google_cloud_run_v2_service.safety_monitor.project
+  location    = google_cloud_run_v2_service.safety_monitor.location
   name        = google_cloud_run_v2_service.safety_monitor.name
   policy_data = data.google_iam_policy.noauth.policy_data
 }
 
-# ---------------------------------------------------------------------------
-# Budget alert — $15/month cap
-# Alerts at 50%, 75%, 90%, 100% of budget
-# ---------------------------------------------------------------------------
+# ============================================
+# BILLING BUDGET ALERT
+# ============================================
 resource "google_billing_budget" "monthly" {
   billing_account = var.billing_account_id
-  display_name    = "safety-monitor-budget-${var.environment}"
+  display_name    = "Safety Monitor Budget - $25 limit"
+
+  budget_filter {
+    projects               = ["projects/${var.project_id}"]
+    credit_types_treatment = "EXCLUDE_ALL_CREDITS"
+  }
 
   amount {
     specified_amount {
       currency_code = "USD"
-      units         = 15
+      units         = 25
     }
   }
 
   threshold_rules {
-    threshold_percent = 0.50
+    threshold_percent = 0.5
+    spend_basis       = "CURRENT_SPEND"
   }
   threshold_rules {
-    threshold_percent = 0.75
+    threshold_percent = 0.8
+    spend_basis       = "CURRENT_SPEND"
   }
   threshold_rules {
-    threshold_percent = 0.90
+    threshold_percent = 0.9
+    spend_basis       = "CURRENT_SPEND"
   }
   threshold_rules {
     threshold_percent = 1.0
+    spend_basis       = "CURRENT_SPEND"
   }
 
   all_updates_rule {
-    monitoring_notification_channels = [
-      google_monitoring_notification_channel.email.id,
-    ]
-    disable_default_iam_recipients = false
-  }
-
-  filter {
-    projects = ["projects/${var.project_id}"]
+    monitoring_notification_channels = []
+    disable_default_iam_recipients   = false
   }
 }
 
-resource "google_monitoring_notification_channel" "email" {
-  display_name = "Budget Alert Email"
-  type         = "email"
-  labels = {
-    email_address = var.budget_alert_email
-  }
-}
+
