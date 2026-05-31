@@ -10,60 +10,96 @@ const piiAnonymizer = require('../../services/piiAnonymizer');
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
-async function storeSignal(signal, tenantId, userRole) {
-  const { redactedSignal, encryptedData } = piiAnonymizer.extractAndRedact(signal);
+async function storeSignal(signalData, tenantId, userRole) {
+  const { redactedSignal, encryptedData } = piiAnonymizer.extractAndRedact(signalData);
 
-  const isVoluntary = signal.is_voluntary !== undefined ? signal.is_voluntary : redactedSignal.report_type === 'VSR';
-  const reporterRole = signal.reporter_role || null;
+  const isVoluntary = signalData.is_voluntary !== undefined
+    ? signalData.is_voluntary
+    : redactedSignal.report_type === 'VSR';
 
-  const { rows } = await pool.query(
-    `INSERT INTO safety_signals
-       (tenant_id, report_id, report_type, occurrence_date, severity, probability, risk_level, description_raw, is_voluntary, reporter_role)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-     RETURNING *`,
-    [
-      tenantId,
-      redactedSignal.report_id,
-      redactedSignal.report_type,
-      redactedSignal.occurrence_date,
-      redactedSignal.severity,
-      redactedSignal.probability,
-      redactedSignal.risk_level,
-      redactedSignal.description_raw,
-      isVoluntary,
-      reporterRole,
-    ]
-  );
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
 
-  const insertedSignal = rows[0];
+    const sev = redactedSignal.severity || 1;
+    const prob = redactedSignal.probability || 1;
+    const risk = redactedSignal.risk_level || sev * prob;
 
-  if (encryptedData) {
-    await pool.query('SELECT set_user_role($1)', [userRole || 'member']);
-    await pool.query(
-      `INSERT INTO pii_store (tenant_id, signal_id, encrypted_pii)
-       VALUES ($1, $2, $3)`,
-      [tenantId, insertedSignal.id, JSON.stringify(encryptedData)]
+    const result = await client.query(
+      `INSERT INTO safety_signals
+         (tenant_id, report_id, report_type, occurrence_date, severity, probability,
+          risk_level, description_raw, status, is_voluntary, reporter_role,
+          source, assigned_department)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       RETURNING *`,
+      [
+        tenantId,
+        redactedSignal.report_id || signalData.external_id || '',
+        redactedSignal.report_type,
+        redactedSignal.occurrence_date,
+        sev,
+        prob,
+        risk,
+        redactedSignal.description_raw,
+        signalData.status || 'Reported',
+        isVoluntary,
+        signalData.reporter_role || null,
+        signalData.source || null,
+        signalData.assigned_department || null,
+      ]
     );
-  }
 
-  return insertedSignal;
+    if (encryptedData) {
+      await client.query('SELECT set_user_role($1)', [userRole || 'member']);
+      await client.query(
+        `INSERT INTO pii_store (tenant_id, signal_id, encrypted_pii)
+         VALUES ($1, $2, $3)`,
+        [tenantId, result.rows[0].id, JSON.stringify(encryptedData)]
+      );
+    }
+
+    await client.query(
+      `UPDATE safety_signals ss
+       SET
+         occurrence_category_id = (t.tax->>'occurrence_category_id')::UUID,
+         event_type_id          = (t.tax->>'event_type_id')::UUID,
+         hazard_category_id     = (t.tax->>'hazard_category_id')::UUID
+       FROM (
+         SELECT classify_signal_taxonomy($1, $2, $3) AS tax
+       ) t
+       WHERE ss.id = $4`,
+      [redactedSignal.description_raw, redactedSignal.report_type, signalData.source || null, result.rows[0].id]
+    );
+
+    await client.query('COMMIT');
+    return result.rows[0];
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
-router.post('/import/excel', regulatorAuth, upload.single('file'), async (req, res) => {
+function requireAdmin(req, res, next) {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Access denied. Admin role required for import.' });
+  }
+  next();
+}
+
+router.post('/import/excel', authenticate, requireAdmin, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    const tenantId = req.body.tenant_id;
-    if (!tenantId) {
-      return res.status(400).json({ error: 'tenant_id is required in request body' });
-    }
+    const tenantId = req.tenant_id;
 
     const reportTypeOverride = req.body.report_type || null;
 
     const { parseExcelFile } = require('../../services/excelParser');
-    const result = await parseExcelFile(req.file.buffer, tenantId);
+    const result = await parseExcelFile(req.file.buffer, tenantId, req.file.originalname);
 
     const insertedSignals = [];
     for (const signal of result.signals) {
@@ -83,7 +119,10 @@ router.post('/import/excel', regulatorAuth, upload.single('file'), async (req, r
       success: true,
       sheets_processed: result.sheets_processed,
       total_signals_imported: result.total_signals_imported,
+      import: { row_count: insertedSignals.length },
+      signals: insertedSignals,
       by_type: result.by_type,
+      year: result.year,
       errors: result.errors,
     });
   } catch (error) {
@@ -92,12 +131,57 @@ router.post('/import/excel', regulatorAuth, upload.single('file'), async (req, r
   }
 });
 
+router.post('/import/batch', authenticate, requireAdmin, upload.array('files', 10), async (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: 'No files uploaded' });
+    }
+
+    const tenantId = req.tenant_id;
+
+    const { parseMultipleExcelFiles } = require('../../services/excelParser');
+    const result = await parseMultipleExcelFiles(req.files, tenantId);
+
+    const allInserted = [];
+    for (const fileResult of result.files) {
+      for (const signal of fileResult.signals) {
+        const inserted = await storeSignal(signal, tenantId, req.user.role);
+        allInserted.push(inserted);
+        alertEngine.evaluateSignal(inserted, tenantId).catch((err) => {
+          logger.error('Alert engine error during batch import', {
+            error: err.message, signalId: inserted.id,
+          });
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      files_processed: result.files.length,
+      total_signals_imported: result.total_signals_imported,
+      by_year: result.by_year,
+      by_type: result.by_type,
+      details: result.files.map(f => ({
+        filename: f.filename,
+        year: f.year,
+        total_signals_imported: f.total_signals_imported,
+        by_type: f.by_type,
+        errors: f.errors,
+      })),
+      errors: result.errors,
+    });
+  } catch (error) {
+    console.error('Batch import error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.post('/signals', authenticate, async (req, res, next) => {
   try {
-    const { report_id, report_type, occurrence_date, severity, probability, description_raw, reporter_role, is_voluntary } = req.body;
+    const { report_id, report_type, occurrence_date, severity, probability, description_raw, reporter_role, is_voluntary, source } = req.body;
 
-    if (!report_type || !severity || !probability) {
-      return res.status(400).json({ error: 'Missing required fields: report_type, severity, probability' });
+    if (!report_type || !severity) {
+      return res.status(400).json({ error: 'Missing required field(s): report_type, severity' });
     }
 
     if (!['MOR', 'VSR', 'Hazard'].includes(report_type)) {
@@ -105,7 +189,7 @@ router.post('/signals', authenticate, async (req, res, next) => {
     }
 
     const sev = Number(severity);
-    const prob = Number(probability);
+    const prob = probability !== undefined ? Number(probability) : 1;
     if (sev < 1 || sev > 5 || prob < 1 || prob > 5) {
       return res.status(400).json({ error: 'severity and probability must be integers between 1 and 5' });
     }
@@ -121,6 +205,7 @@ router.post('/signals', authenticate, async (req, res, next) => {
       risk_level: sev * prob,
       description_raw: description_raw || '',
       reporter_role: reporter_role || null,
+      source: source || null,
       is_voluntary: is_voluntary !== undefined ? is_voluntary : report_type === 'VSR',
     }, req.tenant_id, req.user.role);
 
@@ -136,9 +221,18 @@ router.post('/signals', authenticate, async (req, res, next) => {
 
 router.get('/signals', authenticate, async (req, res, next) => {
   try {
-    await pool.query('SELECT set_tenant_context($1)', [req.tenant_id]);
     const { rows } = await pool.query(
-      'SELECT * FROM safety_signals ORDER BY created_at DESC'
+      `SELECT ss.*,
+              oc.code AS occurrence_category_code, oc.name AS occurrence_category_name,
+              et.code AS event_type_code, et.name AS event_type_name,
+              hc.code AS hazard_category_code, hc.name AS hazard_category_name
+       FROM safety_signals ss
+       LEFT JOIN occurrence_categories oc ON oc.id = ss.occurrence_category_id
+       LEFT JOIN event_types et ON et.id = ss.event_type_id
+       LEFT JOIN hazard_categories hc ON hc.id = ss.hazard_category_id
+       WHERE ss.tenant_id = $1
+       ORDER BY ss.created_at DESC`,
+      [req.tenant_id]
     );
     res.json({ signals: rows });
   } catch (err) {
@@ -178,14 +272,14 @@ router.post('/alerts/rules', authenticate, async (req, res, next) => {
 
 router.get('/alerts/active', authenticate, async (req, res, next) => {
   try {
-    await pool.query('SELECT set_tenant_context($1)', [req.tenant_id]);
     const { rows } = await pool.query(
       `SELECT a.*, s.report_id, s.report_type, s.severity, s.probability, s.risk_level, s.description_raw, r.rule_name
        FROM alerts a
        JOIN safety_signals s ON s.id = a.signal_id
        JOIN alert_rules r ON r.id = a.rule_id
-       WHERE a.acknowledged_at IS NULL
-       ORDER BY a.triggered_at DESC`
+       WHERE a.tenant_id = $1 AND a.acknowledged_at IS NULL
+       ORDER BY a.triggered_at DESC`,
+      [req.tenant_id]
     );
     res.json({ alerts: rows });
   } catch (err) {

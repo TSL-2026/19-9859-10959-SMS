@@ -11,15 +11,15 @@ const PORT = process.env.PORT || 3000;
 
 // Route-specific CSP
 app.use((req, res, next) => {
-  if (req.path.startsWith('/dashboard/')) {
+  if (req.path === '/' || req.path.startsWith('/demo') || req.path.startsWith('/report') || req.path.startsWith('/dashboard/') || req.path.startsWith('/dev/')) {
     res.setHeader(
       'Content-Security-Policy',
       "default-src 'self'; " +
       "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; " +
-      "style-src 'self' 'unsafe-inline'; " +
-      "connect-src 'self' https://; " +
-      "img-src 'self' data: https://; " +
-      "font-src 'self' data:; " +
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+      "connect-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; " +
+      "img-src 'self' data: https:; " +
+      "font-src 'self' data: https://fonts.gstatic.com; " +
       "object-src 'none'"
     );
   } else {
@@ -61,6 +61,17 @@ app.get('/health', async (req, res) => {
 app.use('/api', require('./src/api/routes'));
 app.use('/api/regulator', require('./src/api/routes/regulator'));
 app.use('/api/just-culture', require('./src/api/routes/justCulture'));
+app.use('/api', require('./src/api/routes/workflow'));
+app.use('/dev', require('./src/api/routes/dev'));
+
+// Demo portal (before / to ensure it matches first)
+app.use('/demo', require('./src/api/routes/demo'));
+
+// Quick Report page
+app.use('/report', require('./src/api/routes/report'));
+
+// Landing page
+app.use('/', require('./src/api/routes/landing'));
 
 // Dashboard route
 app.get('/dashboard/regulator/', (req, res) => {
@@ -74,7 +85,10 @@ app.use(express.static(path.join(__dirname, 'public')));
 if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
-    console.log(`Dashboard: http://localhost:${PORT}/dashboard/regulator/?token=YOUR_TOKEN`);
+    console.log(`Landing page: http://localhost:${PORT}`);
+    console.log(`Demo portal:  http://localhost:${PORT}/demo`);
+    console.log(`Dev console:  http://localhost:${PORT}/dev/dashboard`);
+    console.log(`Quick report: http://localhost:${PORT}/report`);
   });
 }
 

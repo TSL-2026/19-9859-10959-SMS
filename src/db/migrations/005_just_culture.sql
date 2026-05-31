@@ -1,4 +1,4 @@
--- Just Culture Metrics (ICAO Doc 10959)
+-- Just Culture Metrics (ICAO Doc 10959 Safety Intelligence Manual)
 -- Adds voluntary reporting columns, tenant config, and aggregation functions
 
 ALTER TABLE safety_signals
@@ -135,20 +135,19 @@ DECLARE
 BEGIN
   WITH monthly AS (
     SELECT
-      tenant_id,
       date_trunc('month', created_at)::DATE AS month,
-      COUNT(*) AS cnt
+      COUNT(*) FILTER (WHERE is_voluntary = TRUE) AS voluntary_count,
+      COUNT(*) FILTER (WHERE is_voluntary = FALSE) AS mandatory_count
     FROM safety_signals
-    WHERE is_voluntary = TRUE
-      AND created_at >= date_trunc('month', NOW()) - (months || ' months')::INTERVAL
-    GROUP BY tenant_id, date_trunc('month', created_at)
-    ORDER BY tenant_id, month
+    WHERE created_at >= date_trunc('month', NOW()) - (months || ' months')::INTERVAL
+    GROUP BY date_trunc('month', created_at)
+    ORDER BY month
   )
   SELECT jsonb_agg(
     jsonb_build_object(
-      'tenant_id', tenant_id,
       'month', month,
-      'count', cnt
+      'voluntary_count', voluntary_count,
+      'mandatory_count', mandatory_count
     )
   ) INTO result
   FROM monthly;

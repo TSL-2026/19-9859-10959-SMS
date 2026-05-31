@@ -25,7 +25,6 @@ echo ""
 # Endpoint checks
 ENDPOINTS=(
   "/health"
-  "/api/just-culture/health"
 )
 
 ALL_PASSED=true

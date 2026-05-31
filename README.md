@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![GCP](https://img.shields.io/badge/deployed-Cloud%20Run-4285F4)](https://cloud.google.com/run)
 
-Multi-tenant safety monitoring and reporting system compliant with **ICAO Annex 19** (Safety Management), **Doc 9859** (Safety Management Manual), and **Doc 10959** (Just Culture). Processes Mandatory Occurrence Reports (MOR), Voluntary Safety Reports (VSR), and Hazard reports with real-time alerts, PII anonymization, and cross-tenant regulator oversight.
+Multi-tenant safety monitoring and reporting system compliant with **ICAO Annex 19** (Safety Management), **Doc 9859** (Safety Management Manual), and **Doc 10959** (Safety Intelligence Manual). Processes Mandatory Occurrence Reports (MOR), Voluntary Safety Reports (VSR), and Hazard reports with real-time alerts, PII anonymization, and cross-tenant regulator oversight.
 
 ---
 
@@ -43,7 +43,7 @@ Safety Monitor provides an end-to-end safety data management pipeline for aviati
 | **Annex 19** §5.2 | Risk assessment via Severity × Probability matrix |
 | **Annex 19** §6.1 | SPI aggregation and trending |
 | **Doc 9859** Ch.5 | PII protection with encryption at rest |
-| **Doc 10959** | Just Culture metrics (voluntary reporting rate, health score) |
+| **Doc 10959** | Safety data analysis, processing and safety intelligence development |
 
 ### Multi-Tenancy
 
@@ -76,7 +76,7 @@ Each tenant (airline, MRO, ANSP) operates in an isolated data silo enforced by *
 - **Zero raw data exposure**: regulators see aggregates only — no individual signals
 - **JWT-authenticated**: dedicated `regulator` role
 
-### Just Culture Metrics (ICAO Doc 10959)
+### Just Culture Metrics
 - **Reporting rate**: actual voluntary reports vs. expected (configurable per tenant)
 - **Health score**: (Reporting Rate × 0.6) + (Trend × 0.2) + (Diversity × 0.2)
 - **Trend analysis**: 6-month rolling comparison

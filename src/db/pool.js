@@ -10,6 +10,8 @@ const pool = new Pool({
   database: process.env.DB_NAME || 'safety_monitor_dev',
   user: process.env.DB_USER || 'gsa',
   password: process.env.DB_PASSWORD || '',
+  connectionTimeoutMillis: 3000,
+  idleTimeoutMillis: 10000,
 });
 
 pool.on('error', (err) => {

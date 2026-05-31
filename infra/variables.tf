@@ -27,8 +27,8 @@ variable "service_name" {
   default     = "safety-monitor"
 }
 
-variable "billing_account_id" {
-  description = "GCP Billing Account ID"
-  type        = string
-  sensitive   = true
-}
+# variable "billing_account_id" {
+#   description = "GCP Billing Account ID (required for budget alerts)"
+#   type        = string
+#   sensitive   = true
+# }

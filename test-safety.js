@@ -97,15 +97,20 @@ function request(method, path, body, headers) {
 function buildExcelBuffer(rows, reportType) {
   const headers =
     reportType === 'MOR'
-      ? ['Report ID', 'Occurrence Date', 'Severity', 'Probability', 'Description']
+      ? ['Occurrence Code', 'Reported Date', 'Report Priority Level', 'Sources of Information', 'Unsafe Event']
       : reportType === 'VSR'
         ? ['VSR ID', 'Date', 'Severity Rating', 'Probability Rating', 'Narrative']
-        : ['Hazard ID', 'Date Identified', 'Severity', 'Likelihood', 'Hazard Description'];
+        : ['Hazard ID', 'Date Identified', 'Report prority Level', 'Sources of infromation', 'Hazard Description'];
+
+  const sheetName =
+    reportType === 'MOR' ? 'Occurrence Log'
+    : reportType === 'VSR' ? 'Master Logsheet'
+    : 'Hazard Logsheet';
 
   const data = [headers, ...rows];
   const ws = XLSX.utils.aoa_to_sheet(data);
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
   return Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
 }
 
@@ -307,9 +312,9 @@ async function main() {
   await assert('POST /api/import/excel uploads MOR file and redacts PII', async () => {
     const buf = buildExcelBuffer(
       [
-        ['MOR-100', '2025-03-01', 2, 2, 'Passenger: Jane Doe on flight DL4567'],
-        ['MOR-101', '2025-03-02', 4, 4, 'Co-Pilot: Bob Smith tail N67890'],
-        ['MOR-102', '2025-03-03', 5, 5, 'Captain: Alice Johnson'],
+        ['MOR-100', '2025-03-01', 'L', '', 'Passenger: Jane Doe on flight DL4567'],
+        ['MOR-101', '2025-03-02', 'H', '', 'Co-Pilot: Bob Smith tail N67890'],
+        ['MOR-102', '2025-03-03', 'H', '', 'Captain: Alice Johnson'],
       ],
       'MOR'
     );
@@ -392,9 +397,9 @@ async function main() {
     }
     console.log('       Encrypted PII entries:', rows.length, 'with ciphertext + iv + auth_tag');
   });
+  // ===== Just Culture Metrics (Doc 10959 Safety Intelligence Manual) =====
 
-  // ===== Just Culture Metrics Tests (ICAO Doc 10959) =====
-  console.log('\n  --- Just Culture Metrics (ICAO Doc 10959) ---\n');
+  console.log('\n  --- Just Culture Metrics ---\n');
 
   // 12. VSR auto-sets is_voluntary = TRUE
   await assert('VSR report auto-sets is_voluntary = TRUE', async () => {

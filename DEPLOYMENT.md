@@ -1,16 +1,40 @@
 # Deployment Guide — Safety Monitor on Google Cloud Platform
 
+> **Goal**: Deploy a live demo for stakeholder review and funding discussions.
+> **Estimated time**: 30–45 minutes.
+> **Monthly cost**: ~$8–12 (db-f1-micro Cloud SQL, Cloud Run scale-to-zero, Artifact Registry storage).
+
+---
+
 ## Prerequisites
 
-- **GCP Project** with billing enabled
-- **Tools installed**: `gcloud`, `terraform` (>=1.5), `docker`, `jq`
-- **gcloud authenticated** and configured:
+- **Google Cloud Project** with [Blaze billing enabled](https://console.cloud.google.com/billing)
+- **Tools installed locally**:
   ```bash
+  # macOS
+  brew install --cask google-cloud-sdk
+  brew install terraform docker cloud-sql-proxy
+
   gcloud auth login
   gcloud config set project YOUR_PROJECT_ID
   ```
 
-## Step 1: Enable Required APIs
+---
+
+## Quick Deploy (30 min)
+
+```bash
+cd /path/to/19-9859-10959-SMS
+
+# One-command deploy (automates everything below):
+./scripts/deploy.sh YOUR_PROJECT_ID
+```
+
+---
+
+## Step-by-Step (manual, for understanding)
+
+### 1. Enable APIs
 
 ```bash
 gcloud services enable \
@@ -18,143 +42,134 @@ gcloud services enable \
   sqladmin.googleapis.com \
   secretmanager.googleapis.com \
   storage.googleapis.com \
+  artifactregistry.googleapis.com \
   vpcaccess.googleapis.com \
-  cloudbuild.googleapis.com \
-  iamcredentials.googleapis.com
+  cloudbuild.googleapis.com
 ```
 
-## Step 2: Create Terraform State Bucket (optional but recommended)
-
-```bash
-gsutil mb gs://safety-monitor-tfstate
-```
-
-Uncomment the `backend "gcs"` block in `infra/main.tf` and update the bucket name.
-
-## Step 3: Provision Infrastructure
+### 2. Provision Infrastructure
 
 ```bash
 cd infra
+
+# Copy and edit with your project ID and billing account ID
 cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars with your project ID
+# Edit terraform.tfvars — set project_id and billing_account_id
+# Find billing account: gcloud billing accounts list
 
 terraform init
-terraform plan
 terraform apply
 ```
 
 This creates:
-- VPC network + subnetwork + Serverless VPC Access connector
-- Cloud SQL PostgreSQL (db-f1-micro, private IP)
-- Cloud Storage bucket (30-day lifecycle)
-- Secret Manager secrets (DB_PASSWORD, JWT_SECRET, ENCRYPTION_KEY, REGULATOR_KEYS)
-- Cloud Run service (scale-to-zero)
-- Service accounts (least privilege)
-
-## Step 4: Configure GitHub Actions (CI/CD)
-
-### 4a. Set up Workload Identity Federation
+- **VPC** with private IP access for Cloud SQL
+- **Cloud SQL PostgreSQL** (db-f1-micro, ~$8/mo, private IP, automated backups)
+- **Secret Manager** secrets: `DB_PASSWORD`, `JWT_SECRET`, `ENCRYPTION_KEY`
+- **Cloud Storage** bucket for uploads (30-day auto-delete)
+- **Cloud Run** service (scale-to-zero, public HTTPS endpoint)
+- **Service account** with least-privilege roles
+- **Budget alert** at $25/mo (50/80/90/100% thresholds)
 
 ```bash
-# Create a service account for CI/CD
-gcloud iam service-accounts create github-actions-deployer \
-  --display-name="GitHub Actions Deployer"
-
-# Grant it the roles needed
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-  --member="serviceAccount:github-actions-deployer@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/run.admin"
-
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-  --member="serviceAccount:github-actions-deployer@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/storage.admin"
-
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-  --member="serviceAccount:github-actions-deployer@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/iam.serviceAccountUser"
-
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-  --member="serviceAccount:github-actions-deployer@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/cloudsql.client"
-
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-  --member="serviceAccount:github-actions-deployer@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/secretmanager.admin"
-
-# Create Workload Identity Pool & Provider
-gcloud iam workload-identity-pools create "github-pool" \
-  --location="global" \
-  --display-name="GitHub Actions Pool"
-
-gcloud iam workload-identity-pools providers create-oidc "github-provider" \
-  --location="global" \
-  --workload-identity-pool="github-pool" \
-  --display-name="GitHub Actions Provider" \
-  --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository" \
-  --issuer-uri="https://token.actions.githubusercontent.com"
+# Save outputs for next steps
+export CLOUD_RUN_URL=$(terraform output -raw cloud_run_url)
+export DB_CONN=$(terraform output -raw cloud_sql_connection_name)
+export SA_EMAIL=$(terraform output -raw service_account_email)
 ```
 
-### 4b. Add GitHub Actions Secrets
-
-| Secret | Value |
-|--------|-------|
-| `GCP_PROJECT_ID` | Your GCP project ID |
-| `GCP_WIF_PROVIDER` | Full resource name of the WIF provider |
-| `GCP_SERVICE_ACCOUNT` | Email of the deployer service account |
-| `DB_PASSWORD` | Retrieved from Secret Manager |
-
-To get the WIF provider:
-```bash
-gcloud iam workload-identity-pools providers describe "github-provider" \
-  --location="global" \
-  --workload-identity-pool="github-pool" \
-  --format="value(name)"
-```
-
-Grant the deployer SA access to the WIF pool:
-```bash
-gcloud iam service-accounts add-iam-policy-binding \
-  "github-actions-deployer@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/iam.workloadIdentityUser" \
-  --member="principalSet://iam.googleapis.com/$(gcloud iam workload-identity-pools describe 'github-pool' --location='global' --format='value(name)')/attribute.repository/YOUR_ORG/YOUR_REPO"
-```
-
-## Step 5: Deploy Manually
+### 3. Build & Push Docker Image
 
 ```bash
-# Option A — One-command script
-export GCP_PROJECT_ID=your-project-id
-./scripts/deploy.sh
+# Create Artifact Registry repo
+gcloud artifacts repositories create cloud-run-source-deploy \
+  --repository-format=docker --location=us-central1
 
-# Option B — Step by step
-docker build -t safety-monitor .
-docker tag safety-monitor us-central1-docker.pkg.dev/PROJECT_ID/cloud-run-source-deploy/safety-monitor:latest
-docker push ...
-gcloud run deploy safety-monitor --image ... --region us-central1
+# Build and push
+docker build -t us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/safety-monitor:latest ..
+docker push us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/safety-monitor:latest
 ```
 
-## Step 6: Run Migrations
+### 4. Run Database Migrations
 
 ```bash
-./scripts/migrate.sh
+# Fetch secrets from Secret Manager
+DB_PASSWORD=$(gcloud secrets versions access latest --secret="DB_PASSWORD")
+JWT_SECRET=$(gcloud secrets versions access latest --secret="JWT_SECRET")
+
+# Start Cloud SQL proxy
+cloud-sql-proxy --port 5432 "$DB_CONN" &
+sleep 3
+
+# Run migrations
+DB_HOST=localhost DB_NAME=safety_monitor_prod DB_USER=safety_user DB_PASSWORD="$DB_PASSWORD" \
+  node src/db/migrations/run.js
+
+# Seed demo data (1,430 signals, 13 operators, 3 regions)
+DB_HOST=localhost DB_NAME=safety_monitor_prod DB_USER=safety_user DB_PASSWORD="$DB_PASSWORD" \
+  JWT_SECRET="$JWT_SECRET" \
+  node scripts/seed-demo.js
 ```
 
-## Step 7: Verify
+### 5. Deploy to Cloud Run
 
 ```bash
-./scripts/smoke-test.sh
+gcloud run deploy safety-monitor \
+  --image us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/safety-monitor:latest \
+  --region us-central1 \
+  --add-cloudsql-instances "$DB_CONN" \
+  --set-env-vars "DB_NAME=safety_monitor_prod,DB_USER=safety_user,PORT=3000" \
+  --set-env-vars "DB_HOST=/cloudsql/$DB_CONN" \
+  --set-secrets "DB_PASSWORD=DB_PASSWORD:latest,JWT_SECRET=JWT_SECRET:latest,ENCRYPTION_KEY=ENCRYPTION_KEY:latest" \
+  --service-account "$SA_EMAIL" \
+  --allow-unauthenticated
 ```
 
-## Post-Deployment
+### 6. Verify
 
-1. **Generate regulator JWT**: Use the `JWT_SECRET` from Secret Manager to sign regulator tokens
-2. **Load tenant config**: Insert `tenant_config` rows with `total_operations` for each tenant
-3. **Set up monitoring**: Visit Cloud Monitoring console → Dashboards → Create dashboard
+```bash
+curl -s $CLOUD_RUN_URL/health
+# → {"status":"ok","db":"connected"}
 
-## Tearing Down
+curl -s $CLOUD_RUN_URL
+# → Landing page with live stats and login selector
+```
+
+Open the URL in a browser — full demo is ready.
+
+---
+
+## Cost Breakdown (Blaze, demo scale)
+
+| Service | SKU | Est. Monthly |
+|---------|-----|-------------|
+| Cloud SQL | db-f1-micro (10GB SSD) | $8.03 |
+| Cloud Run | 0–10 instances, scale-to-zero | $0–3 |
+| Secret Manager | 4 secrets, minimal access | $0 |
+| Cloud Storage | 10GB, 30-day lifecycle | $0.02 |
+| Artifact Registry | 1 image | $0 |
+| **Total** | | **~$8–12/mo** |
+
+Budget alert is set at $25/mo in the Terraform. You'll get email notifications at 50/80/90/100%.
+
+---
+
+## After Deployment
+
+1. **Send stakeholder the URL** — the landing page has live stats, FAQ, and a login dropdown
+2. **Demonstrate** sign-in as any operator or the regulator
+3. **Submit a Quick Report** at `https://URL/report`
+4. **Show SPI charts** with taxonomy/region filters
+5. **Walk through workflow** — assign, investigate, resolve signals
+
+---
+
+## Tearing Down (when demo is done)
 
 ```bash
 cd infra
 terraform destroy
-gcloud container images delete $(gcloud container images list --repository=us-central1-docker.pkg.dev/YOUR_PROJECT_ID/cloud-run-source-deploy --format="value(name)")
+
+# Delete container images
+gcloud artifacts docker images delete \
+  us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/safety-monitor:latest
 ```

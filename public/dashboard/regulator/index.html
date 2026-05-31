@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Safety Monitor – Regulator Dashboard</title>
+    <title>Safety Monitor – Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
@@ -23,7 +23,6 @@
         .chart-container { background: white; padding: 20px; border-radius: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 32px; }
         canvas { max-height: 300px; width: 100%; }
         .two-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 32px; }
-        .three-columns { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; margin-bottom: 32px; }
         .info-panel { background: white; padding: 20px; border-radius: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
         .info-panel h3 { margin-bottom: 12px; color: #1a3a5c; }
         .tenant-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
@@ -37,30 +36,81 @@
         button { background: #2c7da0; color: white; border: none; padding: 6px 16px; border-radius: 6px; cursor: pointer; font-weight: 500; }
         button:hover { background: #1f5e7a; }
         button:disabled { opacity: 0.5; cursor: not-allowed; }
-        .metric-badge { display: inline-block; background: #e9ecef; padding: 4px 12px; border-radius: 20px; font-size: 13px; margin-top: 8px; }
         .no-data { color: #8a9aa8; text-align: center; padding: 30px 0; }
-        .gauge { position: relative; display: inline-block; margin: 8px 0; }
-        .gauge-value { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 22px; font-weight: 700; color: #1a3a5c; }
-        @media (max-width: 700px) { .two-columns, .three-columns { grid-template-columns: 1fr; } }
+        @media (max-width: 700px) { .two-columns { grid-template-columns: 1fr; } }
+        .role-badge { display: inline-block; background: #e9ecef; padding: 2px 10px; border-radius: 12px; font-size: 11px; color: #4a627a; margin-left: 8px; }
     </style>
 </head>
 <body>
 <div class="container">
-    <h1>&#9992;&#65039; Safety Signal Monitor</h1>
-    <div class="subtitle">ICAO Annex 19 | Doc 9859 | Doc 10959 — Cross‑tenant regulator view (fully anonymized)</div>
+    <h1>&#9992;&#65039; Safety Signal Monitor <span id="roleBadge" class="role-badge"></span></h1>
+    <div id="subtitle" class="subtitle">ICAO Annex 19 | Doc 9859 (SMM) | Doc 10959 (Safety Intelligence)</div>
 
     <div id="loading" class="loading">Loading dashboard data…</div>
     <div id="errorMsg" class="error-banner" style="display:none;"></div>
     <div id="noToken" style="display:none;"></div>
 
     <div id="dashboardContent" style="display:none;">
-        <div class="tabs">
-            <div class="tab active" data-tab="spi">&#128202; SPI Overview</div>
-            <div class="tab" data-tab="just">&#9878;&#65039; Just Culture Metrics</div>
+        <div class="tabs" id="tabContainer"></div>
+
+        <!-- OPERATOR: My Signals -->
+        <div id="operatorSignalsTab">
+            <div class="card-grid" id="opSummaryCards"></div>
+
+            <div class="two-columns">
+                <div class="chart-container">
+                    <h3 style="margin-bottom:12px;color:#1a3a5c;">Signals by Type</h3>
+                    <canvas id="opSignalsByTypeChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <h3 style="margin-bottom:12px;color:#1a3a5c;">Risk Level Distribution</h3>
+                    <canvas id="opRiskChart"></canvas>
+                </div>
+            </div>
+
+            <div class="info-panel">
+                <h3>&#128196; Recent Signals</h3>
+                <div id="opSignalsTable"><div class="no-data">No signals found</div></div>
+            </div>
         </div>
 
-        <!-- SPI TAB -->
-        <div id="spiTab">
+        <!-- REGULATOR: SPI Overview -->
+        <div id="spiTab" style="display:none;">
+            <div id="filterBar" style="background:white;padding:16px;border-radius:16px;box-shadow:0 2px 8px rgba(0,0,0,0.08);margin-bottom:20px;">
+                <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap;">
+                    <div>
+                        <label style="display:block;font-size:12px;color:#5a6874;font-weight:600;margin-bottom:4px;">Occurrence Category</label>
+                        <select id="filterOccCat" style="padding:8px 12px;border:1px solid #ccc;border-radius:8px;font-size:13px;min-width:170px;">
+                            <option value="">All Occurrence Categories</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:12px;color:#5a6874;font-weight:600;margin-bottom:4px;">Hazard Category</label>
+                        <select id="filterHazCat" style="padding:8px 12px;border:1px solid #ccc;border-radius:8px;font-size:13px;min-width:170px;">
+                            <option value="">All Hazard Categories</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:12px;color:#5a6874;font-weight:600;margin-bottom:4px;">Event Type</label>
+                        <select id="filterEventType" style="padding:8px 12px;border:1px solid #ccc;border-radius:8px;font-size:13px;min-width:170px;">
+                            <option value="">All Event Types</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:12px;color:#5a6874;font-weight:600;margin-bottom:4px;">Region</label>
+                        <select id="filterRegion" style="padding:8px 12px;border:1px solid #ccc;border-radius:8px;font-size:13px;min-width:140px;">
+                            <option value="">All Regions</option>
+                            <option value="asia">Asia</option>
+                            <option value="na">North America</option>
+                            <option value="oceania">Oceania</option>
+                        </select>
+                    </div>
+                    <div>
+                        <button id="clearFiltersBtn" style="background:#6c757d;padding:8px 16px;">&#10227; Clear</button>
+                    </div>
+                </div>
+                <div id="filterIndicator" style="margin-top:8px;font-size:12px;color:#2c7da0;font-weight:500;"></div>
+            </div>
             <div class="card-grid" id="summaryCards"></div>
 
             <div class="two-columns">
@@ -85,28 +135,29 @@
                 </div>
             </div>
 
-            <div class="info-panel">
-                <h3>&#127963; Per-Tenant Aggregated SPI Data</h3>
-                <div id="tenantTable"><div class="no-data">No tenant data available</div></div>
+            <div class="two-columns">
+                <div class="chart-container">
+                    <h3 style="margin-bottom:12px;color:#1a3a5c;">Signals by Occurrence Category</h3>
+                    <canvas id="categoryChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <h3 style="margin-bottom:12px;color:#1a3a5c;">Signals by Hazard Category</h3>
+                    <canvas id="hazardChart"></canvas>
+                </div>
             </div>
+
             <div style="text-align:right;margin-top:16px;">
                 <button id="exportPdfBtn">&#128196; Export PDF (Annex 19)</button>
             </div>
         </div>
 
-        <!-- JUST CULTURE TAB -->
+        <!-- REGULATOR: Just Culture -->
         <div id="justTab" style="display:none;">
             <div class="card-grid" id="jcCards"></div>
 
-            <div class="two-columns">
-                <div class="chart-container">
-                    <h3 style="margin-bottom:12px;color:#1a3a5c;">Voluntary Reports Timeline</h3>
-                    <canvas id="voluntaryTimelineChart"></canvas>
-                </div>
-                <div class="chart-container">
-                    <h3 style="margin-bottom:12px;color:#1a3a5c;">Per-Tenant Reporting Rate</h3>
-                    <canvas id="tenantRateChart"></canvas>
-                </div>
+            <div class="chart-container">
+                <h3 style="margin-bottom:12px;color:#1a3a5c;">Voluntary Reports Timeline</h3>
+                <canvas id="voluntaryTimelineChart"></canvas>
             </div>
 
             <div class="two-columns">
@@ -115,7 +166,7 @@
                     <div id="componentBreakdown"></div>
                 </div>
                 <div class="info-panel">
-                    <h3>&#128161; Recommendations (Doc 10959)</h3>
+                    <h3>&#128161; Recommendations</h3>
                     <ul id="recommendationsList" class="recommendations"></ul>
                 </div>
             </div>
@@ -125,13 +176,101 @@
                 <div id="benchmarkData"></div>
             </div>
         </div>
+
+        <!-- REGULATOR: Top Risks Declaration -->
+        <div id="toprisksTab" style="display:none;">
+            <div class="card-grid" id="trCards">
+                <div class="card"><h3>Declared Top Risks</h3><div class="value" id="trCount">0</div><div class="sub">Active industry risks</div></div>
+                <div class="card"><h3>Last Updated</h3><div class="value" id="trUpdated">—</div><div class="sub">Latest declaration</div></div>
+            </div>
+            <div class="info-panel">
+                <h3>&#127385; Industry Top Risk Register</h3>
+                <p style="color:#4a627a;margin-bottom:16px;font-size:13px;">Rank and describe the industry's top safety risks. Operators will see the declared list. Lower rank = higher priority.</p>
+                <div id="topRisksTable"><div class="no-data">Loading…</div></div>
+            </div>
+        </div>
+
+        <!-- WORKFLOW (operator) -->
+        <div id="workflowTab" style="display:none;">
+            <div class="card-grid" id="wfSummaryCards">
+                <div class="card"><h3>Pending Notices</h3><div class="value" id="wfNoticeCount">0</div><div class="sub">Awaiting action</div></div>
+                <div class="card"><h3>Escalation Rules</h3><div class="value" id="wfRuleCount">0</div><div class="sub">Active auto-escalation</div></div>
+                <div class="card" style="cursor:pointer;" id="wfCheckEscBtn"><h3>&#9888; Check Escalations</h3><div class="value" style="font-size:18px;">Run Now</div><div class="sub">Triggers overdue notices</div></div>
+            </div>
+
+            <div class="two-columns">
+                <div class="info-panel">
+                    <h3>&#128276; Pending Notices</h3>
+                    <div id="wfNoticesList"><div class="no-data">No pending notices</div></div>
+                </div>
+                <div class="info-panel">
+                    <h3>&#128197; Signal Timeline</h3>
+                    <div style="margin-bottom:12px;">
+                        <select id="wfSignalSelect" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:8px;font-size:13px;">
+                            <option value="">Select a signal to view timeline</option>
+                        </select>
+                    </div>
+                    <div id="wfTimeline"><div class="no-data">Select a signal above</div></div>
+                </div>
+            </div>
+
+            <div class="info-panel" style="margin-top:16px;">
+                <h3>&#9879; Escalation Rules</h3>
+                <p style="color:#4a627a;font-size:13px;margin-bottom:12px;">Auto-escalate signals stuck in a status beyond the time threshold.</p>
+                <div id="wfEscRulesList"><div class="no-data">No escalation rules defined</div></div>
+            </div>
+        </div>
+
+        <!-- Modal for assign/resolve/close -->
+        <div id="workflowModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:1000;justify-content:center;align-items:center;">
+            <div style="background:white;border-radius:16px;padding:24px;max-width:500px;width:90%;max-height:80vh;overflow-y:auto;box-shadow:0 4px 24px rgba(0,0,0,0.2);">
+                <h3 id="wfModalTitle" style="margin-bottom:16px;color:#1a3a5c;"></h3>
+                <div id="wfModalBody"></div>
+                <div style="margin-top:20px;display:flex;gap:8px;justify-content:end;">
+                    <button id="wfModalCancel" style="background:#6c757d;">Cancel</button>
+                    <button id="wfModalConfirm" style="background:#2c7da0;">Confirm</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Upload (admin only) -->
+        <div id="uploadTab" style="display:none;">
+            <div class="info-panel" style="max-width:600px;margin:0 auto;">
+                <h3>&#128228; Upload Safety Reports</h3>
+                <p style="color:#4a627a;margin-bottom:20px;">Upload Excel files (MOR/VSR/Hazard/Master Logsheet) for any year.</p>
+
+                <div style="margin-bottom:16px;">
+                    <label style="display:block;font-weight:600;color:#1a3a5c;margin-bottom:6px;">Excel Files</label>
+                    <input id="uploadFiles" type="file" accept=".xlsx,.xls" multiple style="width:100%;padding:10px;border:1px solid #ccc;border-radius:8px;font-size:14px;">
+                    <div style="font-size:12px;color:#8a9aa8;margin-top:4px;">Supports Master Logsheet, Occurrence, Hazard, Safety Deficiency, and Diversion sheets</div>
+                </div>
+
+                <button id="uploadBtn" style="background:#2c7da0;color:white;border:none;padding:12px 32px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;">&#128229; Upload & Import</button>
+
+                <div id="uploadProgress" style="display:none;margin-top:16px;">
+                    <div style="background:#e9ecef;border-radius:20px;height:8px;overflow:hidden;">
+                        <div id="uploadProgressBar" style="background:#2c7da0;height:8px;width:0%;border-radius:20px;transition:width 0.3s;"></div>
+                    </div>
+                    <div id="uploadStatus" style="font-size:13px;color:#4a627a;margin-top:8px;"></div>
+                </div>
+
+                <div id="uploadResult" style="display:none;margin-top:20px;padding:16px;border-radius:12px;"></div>
+            </div>
+        </div>
     </div>
 </div>
 
 <script>
 (function() {
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
+    function decodeToken(token) {
+        try {
+            var payload = token.split('.')[1];
+            return JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+        } catch(e) { return {}; }
+    }
+
+    var urlParams = new URLSearchParams(window.location.search);
+    var token = urlParams.get('token');
     if (!token) {
         document.getElementById('loading').style.display = 'none';
         document.getElementById('noToken').style.display = 'block';
@@ -140,7 +279,30 @@
         return;
     }
 
-    let allChartInstances = [];
+    var payload = decodeToken(token);
+    var role = payload.role || 'unknown';
+    var tenantId = payload.tenant_id || null;
+
+    document.getElementById('roleBadge').textContent = role;
+
+    if (role === 'regulator') {
+        document.getElementById('subtitle').textContent += ' — Industry-level regulator view (fully anonymized)';
+    } else if (tenantId) {
+        document.getElementById('subtitle').textContent += ' — Tenant view';
+        (async function() {
+            try {
+                var me = await api('/api/me');
+                if (me.tenant_name) {
+                    document.getElementById('subtitle').textContent += ': ' + me.tenant_name;
+                }
+            } catch(e) {}
+        })();
+    } else {
+        document.getElementById('subtitle').textContent += ' — Operator view';
+    }
+
+    var allChartInstances = [];
+    var currentTab = null;
 
     function destroyCharts() {
         allChartInstances.forEach(function(c) { try { c.destroy(); } catch(e) {} });
@@ -155,10 +317,16 @@
         return chart;
     }
 
-    async function api(url) {
-        var res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token } });
-        if (res.status === 401) throw new Error('Invalid or expired token — generate a new regulator JWT');
-        if (res.status === 403) throw new Error('Access denied — regulator role required');
+    async function api(url, method, body) {
+        var opts = { headers: { 'Authorization': 'Bearer ' + token } };
+        if (method && method !== 'GET') {
+            opts.method = method;
+            opts.headers['Content-Type'] = 'application/json';
+            if (body) opts.body = JSON.stringify(body);
+        }
+        var res = await fetch(url, opts);
+        if (res.status === 401) throw new Error('Invalid or expired token');
+        if (res.status === 403) throw new Error('Access denied');
         if (!res.ok) throw new Error('HTTP ' + res.status);
         return res.json();
     }
@@ -182,47 +350,525 @@
         document.getElementById('dashboardContent').style.display = 'block';
     }
 
-    async function loadDashboard() {
-        showLoading('Loading SPI and Just Culture data…');
-        try {
-            var [spiData, trendsData, tenantsData, jcHealth, jcTimeline, jcBenchmark] = await Promise.all([
-                api('/api/regulator/spis'),
-                api('/api/regulator/trends?months=12'),
-                api('/api/regulator/tenants'),
-                api('/api/just-culture/health'),
-                api('/api/just-culture/timeline?months=12'),
-                api('/api/just-culture/benchmark')
-            ]);
+    function switchTab(tabId) {
+        currentTab = tabId;
+        document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+        var tabEl = document.querySelector('.tab[data-tab="' + tabId + '"]');
+        if (tabEl) tabEl.classList.add('active');
+        document.querySelectorAll('#dashboardContent > div[id$="Tab"]').forEach(function(d) { d.style.display = 'none'; });
+        var el = document.getElementById(tabId + 'Tab');
+        if (el) el.style.display = 'block';
+    }
 
+    function buildTabs(tabs) {
+        var container = document.getElementById('tabContainer');
+        container.innerHTML = tabs.map(function(t) {
+            return '<div class="tab' + (t.active ? ' active' : '') + '" data-tab="' + t.id + '">' + t.label + '</div>';
+        }).join('');
+        document.querySelectorAll('.tab').forEach(function(tab) {
+            tab.addEventListener('click', function() {
+                switchTab(this.dataset.tab);
+            });
+        });
+    }
+
+    // ─── OPERATOR VIEW ───────────────────────────────────────────────
+
+    async function loadOperatorView() {
+        showLoading('Loading your signals…');
+        try {
+            var data = await api('/api/signals');
             showDashboard();
-            renderSPI(spiData, trendsData, tenantsData);
-            renderJustCulture(jcHealth, jcTimeline, jcBenchmark);
-            setupTabs();
-            setupPDF(spiData, trendsData, tenantsData);
+
+            var signals = data.signals || [];
+            var total = signals.length;
+            var byType = {};
+            var riskBuckets = { '1-4': 0, '5-9': 0, '10-16': 0, '17-25': 0 };
+            var totalRisk = 0;
+            var pending = 0;
+
+            signals.forEach(function(s) {
+                byType[s.report_type] = (byType[s.report_type] || 0) + 1;
+                totalRisk += s.risk_level || 0;
+                if (s.risk_level <= 4) riskBuckets['1-4']++;
+                else if (s.risk_level <= 9) riskBuckets['5-9']++;
+                else if (s.risk_level <= 16) riskBuckets['10-16']++;
+                else riskBuckets['17-25']++;
+                if (s.status === 'Reported' || s.status === 'Under Investigation' || s.status === 'new') pending++;
+            });
+
+            var avgRisk = total ? (totalRisk / total).toFixed(1) : 0;
+
+            document.getElementById('opSummaryCards').innerHTML =
+                '<div class="card"><h3>Total Signals</h3><div class="value">' + total + '</div></div>' +
+                '<div class="card"><h3>Avg Risk Level</h3><div class="value">' + avgRisk + '</div><div class="sub">Severity &#215; Probability</div></div>' +
+                '<div class="card"><h3>Pending</h3><div class="value">' + pending + '</div><div class="sub">New / Reported</div></div>' +
+                '<div class="card"><h3>Types</h3><div class="value">' + Object.keys(byType).length + '</div><div class="sub">' + Object.entries(byType).map(function(e) { return e[0] + ': ' + e[1]; }).join(' | ') + '</div></div>';
+
+            destroyCharts();
+
+            newChart('opSignalsByTypeChart', {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(byType),
+                    datasets: [{ label: 'Count', data: Object.values(byType), backgroundColor: '#2c7da0', borderRadius: 4 }]
+                },
+                options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } }, x: { grid: { display: false } } } }
+            });
+
+            newChart('opRiskChart', {
+                type: 'doughnut',
+                data: {
+                    labels: ['Low (1-4)', 'Medium (5-9)', 'High (10-16)', 'Critical (17-25)'],
+                    datasets: [{ data: Object.values(riskBuckets), backgroundColor: ['#2ecc71', '#f39c12', '#e67e22', '#e74c3c'] }]
+                },
+                options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 8, font: { size: 11 } } } } }
+            });
+
+            if (signals.length) {
+                var html = '<table class="tenant-table"><thead><tr><th>Report ID</th><th>Type</th><th>Date</th><th>Risk</th><th>Status</th><th>Source</th><th>Actions</th></tr></thead><tbody>';
+                signals.slice(0, 100).forEach(function(s) {
+                    var actions = '';
+                    if (s.status === 'Reported') {
+                        actions = '<button onclick="window._openAssign(\'' + s.id + '\',\'' + (s.report_id || '').replace(/'/g, "\\'") + '\')" style="padding:2px 8px;font-size:11px;">Assign</button>';
+                    } else if (s.status === 'Under Investigation') {
+                        actions = '<button onclick="window._openResolve(\'' + s.id + '\',\'' + (s.report_id || '').replace(/'/g, "\\'") + '\')" style="padding:2px 8px;font-size:11px;background:#e67e22;">Resolve</button>';
+                    } else if (s.status === 'Resolved') {
+                        actions = '<button onclick="window._openClose(\'' + s.id + '\',\'' + (s.report_id || '').replace(/'/g, "\\'") + '\')" style="padding:2px 8px;font-size:11px;background:#2ecc71;color:white;">Close</button>';
+                    } else {
+                        actions = '<span style="font-size:11px;color:#8a9aa8;">—</span>';
+                    }
+                    html += '<tr>' +
+                        '<td style="font-family:monospace;font-size:12px;">' + (s.report_id || '—').slice(0, 20) + '</td>' +
+                        '<td>' + (s.report_type || '—') + '</td>' +
+                        '<td>' + (s.occurrence_date || '—') + '</td>' +
+                        '<td>' + s.risk_level + ' <span style="font-size:10px;color:#8a9aa8;">(' + s.severity + '&#215;' + s.probability + ')</span></td>' +
+                        '<td>' + s.status + '</td>' +
+                        '<td>' + (s.source || '—') + '</td>' +
+                        '<td style="white-space:nowrap;">' + actions + '</td></tr>';
+                });
+                html += '</tbody></table>';
+                if (signals.length > 100) html += '<div style="text-align:center;padding:12px;color:#8a9aa8;font-size:13px;">Showing 100 of ' + signals.length + ' signals</div>';
+                document.getElementById('opSignalsTable').innerHTML = html;
+            }
+
+            // Load workflow data (notices, escalation rules)
+            loadWorkflowTabData(signals);
+
+            buildTabs([
+                { id: 'operatorSignals', label: '&#128200; My Signals', active: true },
+                { id: 'workflow', label: '&#128276; Workflow' },
+                { id: 'upload', label: '&#128228; Upload' }
+            ]);
+            switchTab('operatorSignals');
 
         } catch (err) {
             console.error(err);
-            showError('Failed to load dashboard: ' + err.message + '. Check that the backend is running and your token is valid.');
+            showError('Failed to load operator data: ' + err.message);
         }
     }
 
-    // ---- SPI Tab ----
+    // ─── WORKFLOW ─────────────────────────────────────────────────
 
-    function renderSPI(summary, trends, tenants) {
+    function loadWorkflowTabData(signals) {
+        // Populate signal selector
+        var sel = document.getElementById('wfSignalSelect');
+        sel.innerHTML = '<option value="">Select a signal to view timeline</option>';
+        (signals || []).slice(0, 50).forEach(function(s) {
+            var opt = document.createElement('option');
+            opt.value = s.id;
+            opt.textContent = (s.report_id || '—').slice(0, 25) + ' [' + s.status + ']';
+            sel.appendChild(opt);
+        });
+        sel.addEventListener('change', function() {
+            if (this.value) loadWorkflowTimeline(this.value);
+        });
+
+        loadNotices();
+        loadEscalationRules();
+
+        document.getElementById('wfCheckEscBtn').addEventListener('click', function() {
+            api('/api/escalations/check').then(function(r) {
+                loadNotices();
+            }).catch(function(e) { console.error(e); });
+        });
+    }
+
+    async function loadNotices() {
+        try {
+            var data = await api('/api/notices');
+            var notices = data.notices || [];
+            document.getElementById('wfNoticeCount').textContent = notices.length;
+
+            if (!notices.length) {
+                document.getElementById('wfNoticesList').innerHTML = '<div class="no-data">No pending notices</div>';
+                return;
+            }
+
+            var html = '<table class="tenant-table"><thead><tr><th>Type</th><th>Signal</th><th>Message</th><th>Department</th><th>Date</th><th></th></tr></thead><tbody>';
+            notices.forEach(function(n) {
+                html += '<tr>' +
+                    '<td><span style="font-size:11px;font-weight:600;color:' + (n.notice_type === 'escalated' ? '#e74c3c' : n.notice_type === 'assigned' ? '#e67e22' : '#2ecc71') + ';">' + n.notice_type + '</span></td>' +
+                    '<td style="font-size:12px;">' + (n.report_id || '—').slice(0, 15) + '</td>' +
+                    '<td style="font-size:12px;">' + n.message + '</td>' +
+                    '<td style="font-size:12px;">' + (n.department_target || '—') + '</td>' +
+                    '<td style="font-size:11px;">' + (n.created_at || '').slice(0, 10) + '</td>' +
+                    '<td><button onclick="window._ackNotice(\'' + n.id + '\')" style="padding:2px 8px;font-size:11px;">Ack</button></td></tr>';
+            });
+            html += '</tbody></table>';
+            document.getElementById('wfNoticesList').innerHTML = html;
+        } catch (e) {
+            document.getElementById('wfNoticesList').innerHTML = '<div class="no-data">Error loading notices</div>';
+        }
+    }
+
+    window._ackNotice = async function(id) {
+        try {
+            await api('/api/notices/' + id + '/acknowledge');
+            loadNotices();
+        } catch (e) { console.error(e); }
+    };
+
+    async function loadWorkflowTimeline(signalId) {
+        try {
+            var data = await api('/api/signals/' + signalId + '/workflow');
+            var events = data.events || [];
+            if (!events.length) {
+                document.getElementById('wfTimeline').innerHTML = '<div class="no-data">No workflow events recorded</div>';
+                return;
+            }
+            var html = '<div style="position:relative;padding-left:24px;">';
+            var arrow = '&#8595;';
+            events.forEach(function(e, i) {
+                var color = e.to_status === 'Closed' ? '#2ecc71' : e.to_status === 'Dismissed' ? '#8a9aa8' : e.to_status === 'Resolved' ? '#f39c12' : '#2c7da0';
+                html += '<div style="border-left:2px solid ' + color + ';padding:0 0 16px 16px;position:relative;">' +
+                    '<div style="position:absolute;left:-7px;top:0;width:12px;height:12px;border-radius:50%;background:' + color + ';"></div>' +
+                    '<div style="font-size:12px;font-weight:600;color:#1a3a5c;">' + e.from_status + ' &#8594; ' + e.to_status + '</div>' +
+                    '<div style="font-size:11px;color:#8a9aa8;">' + (e.created_at || '').slice(0, 16) + (e.changed_by_name ? ' by ' + e.changed_by_name : '') + '</div>' +
+                    (e.note ? '<div style="font-size:12px;color:#4a627a;margin-top:4px;">' + e.note + '</div>' : '') +
+                    '</div>';
+            });
+            html += '</div>';
+            document.getElementById('wfTimeline').innerHTML = html;
+        } catch (e) {
+            document.getElementById('wfTimeline').innerHTML = '<div class="no-data">Error loading timeline</div>';
+        }
+    }
+
+    async function loadEscalationRules() {
+        try {
+            var data = await api('/api/escalation-rules');
+            var rules = data.rules || [];
+            document.getElementById('wfRuleCount').textContent = rules.length;
+
+            if (!rules.length) {
+                document.getElementById('wfEscRulesList').innerHTML = '<div class="no-data">No escalation rules defined. <button onclick="window._showAddRule()" style="padding:4px 10px;font-size:12px;">Add Rule</button></div>';
+                return;
+            }
+
+            var html = '<table class="tenant-table"><thead><tr><th>Rule</th><th>Trigger</th><th>Threshold</th><th>Escalate To</th><th>Level</th><th>Active</th><th></th></tr></thead><tbody>';
+            rules.forEach(function(r) {
+                html += '<tr>' +
+                    '<td style="font-weight:600;font-size:13px;">' + r.rule_name + '</td>' +
+                    '<td>' + r.trigger_status + '</td>' +
+                    '<td>' + r.time_threshold_hours + 'h</td>' +
+                    '<td>' + (r.escalate_to_department || r.escalate_to_role || '—') + '</td>' +
+                    '<td>' + r.alert_level + '</td>' +
+                    '<td>' + (r.is_active ? '&#10003;' : '&#10007;') + '</td>' +
+                    '<td><button onclick="window._deleteRule(\'' + r.id + '\')" style="padding:2px 8px;font-size:11px;background:#e74c3c;">Del</button></td></tr>';
+            });
+            html += '</tbody></table>';
+            html += '<div style="margin-top:12px;"><button onclick="window._showAddRule()" style="padding:6px 14px;font-size:12px;">+ Add Escalation Rule</button></div>';
+            document.getElementById('wfEscRulesList').innerHTML = html;
+        } catch (e) {
+            document.getElementById('wfEscRulesList').innerHTML = '<div class="no-data">Error loading rules</div>';
+        }
+    }
+
+    window._showAddRule = function() {
+        showModal('Add Escalation Rule',
+            '<div style="display:grid;gap:12px;">' +
+            '<div><label style="font-size:12px;font-weight:600;color:#1a3a5c;">Rule Name</label><input id="modalRuleName" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;" placeholder="e.g., Stalled Investigation"></div>' +
+            '<div><label style="font-size:12px;font-weight:600;color:#1a3a5c;">Trigger Status</label><select id="modalTriggerStatus" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;">' +
+                '<option value="Reported">Reported</option><option value="Under Investigation">Under Investigation</option><option value="Resolved">Resolved</option></select></div>' +
+            '<div><label style="font-size:12px;font-weight:600;color:#1a3a5c;">Time Threshold (hours)</label><input id="modalThreshold" type="number" value="24" min="1" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;"></div>' +
+            '<div><label style="font-size:12px;font-weight:600;color:#1a3a5c;">Escalate to Department</label><input id="modalDept" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;" placeholder="e.g., Safety Office"></div>' +
+            '<div><label style="font-size:12px;font-weight:600;color:#1a3a5c;">Alert Level</label><select id="modalLevel" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;">' +
+                '<option value="MEDIUM">MEDIUM</option><option value="HIGH">HIGH</option><option value="CRITICAL">CRITICAL</option></select></div>' +
+            '</div>',
+            async function() {
+                var name = document.getElementById('modalRuleName').value;
+                var status = document.getElementById('modalTriggerStatus').value;
+                var hours = parseInt(document.getElementById('modalThreshold').value) || 24;
+                var dept = document.getElementById('modalDept').value;
+                var level = document.getElementById('modalLevel').value;
+                if (!name) { alert('Rule name required'); return; }
+                try {
+                    await api('/api/escalation-rules', 'POST', { rule_name: name, trigger_status: status, time_threshold_hours: hours, escalate_to_department: dept || null, alert_level: level });
+                    hideModal();
+                    loadEscalationRules();
+                } catch (e) { alert('Error: ' + e.message); }
+            }
+        );
+    };
+
+    window._deleteRule = async function(id) {
+        if (!confirm('Delete this escalation rule?')) return;
+        try {
+            await api('/api/escalation-rules/' + id, 'DELETE');
+            loadEscalationRules();
+        } catch (e) { alert('Error: ' + e.message); }
+    };
+
+    // ─── WORKFLOW MODAL ──────────────────────────────────────────
+
+    var _modalSignalId = null;
+    var _modalCallback = null;
+
+    function showModal(title, bodyHtml, onConfirm) {
+        document.getElementById('wfModalTitle').textContent = title;
+        document.getElementById('wfModalBody').innerHTML = bodyHtml;
+        document.getElementById('workflowModal').style.display = 'flex';
+        _modalCallback = onConfirm;
+        document.getElementById('wfModalConfirm').onclick = onConfirm;
+        document.getElementById('wfModalCancel').onclick = hideModal;
+    }
+
+    function hideModal() {
+        document.getElementById('workflowModal').style.display = 'none';
+        _modalCallback = null;
+    }
+
+    window._openAssign = function(signalId, reportId) {
+        _modalSignalId = signalId;
+        showModal('Assign Signal: ' + reportId.slice(0, 20),
+            '<div style="display:grid;gap:12px;">' +
+            '<div><label style="font-size:12px;font-weight:600;color:#1a3a5c;">Assign To (Name)</label><input id="modalAssignName" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;" placeholder="Investigator name"></div>' +
+            '<div><label style="font-size:12px;font-weight:600;color:#1a3a5c;">Department</label><input id="modalAssignDept" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;" placeholder="e.g., Flight Safety"></div>' +
+            '<div style="font-size:12px;color:#8a9aa8;">Assigning will set status to <strong>Under Investigation</strong> and notify the department.</div>' +
+            '</div>',
+            async function() {
+                var name = document.getElementById('modalAssignName').value;
+                var dept = document.getElementById('modalAssignDept').value;
+                if (!name && !dept) { alert('Enter at least a name or department'); return; }
+                try {
+                    await api('/api/signals/' + _modalSignalId + '/assign', 'PATCH', { assigned_to_name: name, assigned_department: dept });
+                    hideModal();
+                    location.reload();
+                } catch (e) { alert('Assign failed: ' + e.message); }
+            }
+        );
+    };
+
+    window._openResolve = function(signalId, reportId) {
+        _modalSignalId = signalId;
+        showModal('Resolve Signal: ' + reportId.slice(0, 20),
+            '<div style="display:grid;gap:12px;">' +
+            '<div><label style="font-size:12px;font-weight:600;color:#1a3a5c;">Investigation Notes</label><textarea id="modalInvestNotes" rows="3" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;" placeholder="Root cause, contributing factors..."></textarea></div>' +
+            '<div><label style="font-size:12px;font-weight:600;color:#1a3a5c;">Corrective Actions</label><textarea id="modalCorrectiveActions" rows="3" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;" placeholder="Actions taken to mitigate..."></textarea></div>' +
+            '<div><label style="font-size:12px;font-weight:600;color:#1a3a5c;">Residual Risk Level (1-25)</label><input id="modalResidualRisk" type="number" min="1" max="25" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;" placeholder="e.g., 4"></div>' +
+            '<div><label style="font-size:12px;font-weight:600;color:#1a3a5c;">Defenses in Depth (Equipment, Procedures, Organization)</label><textarea id="modalDefenses" rows="2" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;" placeholder="{\u0022Equipment\u0022:\u0022redundant sensors\u0022,\u0022Procedures\u0022:\u0022enhanced checklist\u0022,\u0022Organization\u0022:\u0022mgmt review\u0022}"></textarea></div>' +
+            '<div style="font-size:12px;color:#8a9aa8;">Resolving will set status to <strong>Resolved</strong> and send a notice.</div>' +
+            '</div>',
+            async function() {
+                try {
+                    var defenses = document.getElementById('modalDefenses').value;
+                    await api('/api/signals/' + _modalSignalId + '/resolve', 'PATCH', {
+                        investigation_notes: document.getElementById('modalInvestNotes').value,
+                        corrective_actions: document.getElementById('modalCorrectiveActions').value,
+                        residual_risk_level: parseInt(document.getElementById('modalResidualRisk').value) || null,
+                        defenses_in_depth: defenses ? JSON.parse(defenses) : null
+                    });
+                    hideModal();
+                    location.reload();
+                } catch (e) { alert('Resolve failed: ' + e.message); }
+            }
+        );
+    };
+
+    window._openClose = function(signalId, reportId) {
+        _modalSignalId = signalId;
+        showModal('Close Signal: ' + reportId.slice(0, 20),
+            '<div style="display:grid;gap:12px;">' +
+            '<div><label style="font-size:12px;font-weight:600;color:#1a3a5c;">Closing Note</label><textarea id="modalCloseNote" rows="2" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;" placeholder="Verification of corrective actions..."></textarea></div>' +
+            '<div style="font-size:12px;color:#8a9aa8;">Closing will set status to <strong>Closed</strong>. Residual risk is accepted.</div>' +
+            '</div>',
+            async function() {
+                try {
+                    await api('/api/signals/' + _modalSignalId + '/close', 'PATCH', {
+                        note: document.getElementById('modalCloseNote').value
+                    });
+                    hideModal();
+                    location.reload();
+                } catch (e) { alert('Close failed: ' + e.message); }
+            }
+        );
+    };
+
+    // ─── REGULATOR VIEW ──────────────────────────────────────────────
+
+    async function loadRegulatorView() {
+        showLoading('Loading SPI and Just Culture data…');
+        try {
+            // Populate filter dropdowns from taxonomy endpoints
+            var [taxoCats, taxoHaz] = await Promise.all([
+                api('/api/taxonomy/categories'),
+                api('/api/taxonomy/hazard-categories')
+            ]);
+            populateFilters(taxoCats.categories || [], taxoHaz.hazard_categories || []);
+
+            var [spiData, trendsData, jcHealth, jcTimeline, jcBenchmark, catData, hazData] = await Promise.all([
+                api('/api/regulator/spi'),
+                api('/api/regulator/trends'),
+                api('/api/just-culture/health'),
+                api('/api/just-culture/timeline'),
+                api('/api/just-culture/benchmark'),
+                api('/api/regulator/signals-by-category'),
+                api('/api/regulator/signals-by-hazard')
+            ]);
+            renderSPI(spiData, trendsData, catData, hazData);
+            renderJustCulture(jcHealth, jcTimeline, jcBenchmark);
+            setupPDF(spiData);
+            showDashboard();
+
+            var topRisks = await api('/api/regulator/top-risks');
+            renderTopRisks(topRisks);
+
+            buildTabs([
+                { id: 'spi', label: '&#128202; SPI Overview', active: true },
+                { id: 'just', label: '&#9878;&#65039; Just Culture Metrics' },
+                { id: 'toprisks', label: '&#127385; Top Risks' }
+            ]);
+            switchTab('spi');
+
+        } catch (err) {
+            console.error(err);
+            showError('Failed to load regulator data: ' + err.message + '. Check that the backend is running and your token is valid.');
+        }
+    }
+
+    // ─── TAXONOMY FILTER DRILL-DOWN ───────────────────────────────
+
+    function populateFilters(categories, hazards) {
+        var catSelect = document.getElementById('filterOccCat');
+        categories.forEach(function(c) {
+            var opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = c.code + ' — ' + c.name;
+            catSelect.appendChild(opt);
+        });
+
+        var hazSelect = document.getElementById('filterHazCat');
+        hazards.forEach(function(h) {
+            var opt = document.createElement('option');
+            opt.value = h.id;
+            opt.textContent = h.code + ' — ' + h.name;
+            hazSelect.appendChild(opt);
+        });
+
+        catSelect.addEventListener('change', function() {
+            updateEventTypes(this.value);
+            applyFilters();
+        });
+        hazSelect.addEventListener('change', applyFilters);
+        document.getElementById('filterEventType').addEventListener('change', applyFilters);
+        document.getElementById('filterRegion').addEventListener('change', applyFilters);
+        document.getElementById('clearFiltersBtn').addEventListener('click', clearFilters);
+
+        // Pre-select region from JWT claims if present
+        if (payload.region) {
+            var regSelect = document.getElementById('filterRegion');
+            for (var i = 0; i < regSelect.options.length; i++) {
+                if (regSelect.options[i].value === payload.region) {
+                    regSelect.selectedIndex = i;
+                    break;
+                }
+            }
+        }
+    }
+
+    function updateEventTypes(categoryId) {
+        var etSelect = document.getElementById('filterEventType');
+        etSelect.innerHTML = '<option value="">All Event Types</option>';
+        if (!categoryId) return;
+        api('/api/taxonomy/event-types?category_id=' + encodeURIComponent(categoryId)).then(function(data) {
+            (data.event_types || []).forEach(function(et) {
+                var opt = document.createElement('option');
+                opt.value = et.id;
+                opt.textContent = et.code + ' — ' + et.name;
+                etSelect.appendChild(opt);
+            });
+        }).catch(function() {});
+    }
+
+    function getFilterQS() {
+        var occCat = document.getElementById('filterOccCat').value;
+        var hazCat = document.getElementById('filterHazCat').value;
+        var evtType = document.getElementById('filterEventType').value;
+        var region = document.getElementById('filterRegion').value;
+        var params = [];
+        if (occCat) params.push('occurrence_category_id=' + encodeURIComponent(occCat));
+        if (hazCat) params.push('hazard_category_id=' + encodeURIComponent(hazCat));
+        if (evtType) params.push('event_type_id=' + encodeURIComponent(evtType));
+        if (region) params.push('region=' + encodeURIComponent(region));
+        return params.length ? '?' + params.join('&') : '';
+    }
+
+    function updateFilterIndicator() {
+        var sel = function(id) {
+            var el = document.getElementById(id);
+            return el.options[el.selectedIndex] ? el.options[el.selectedIndex].text : '';
+        };
+        var parts = [];
+        var occTxt = sel('filterOccCat');
+        var hazTxt = sel('filterHazCat');
+        var evtTxt = sel('filterEventType');
+        var regTxt = sel('filterRegion');
+        if (occTxt && occTxt !== 'All Occurrence Categories') parts.push(occTxt);
+        if (hazTxt && hazTxt !== 'All Hazard Categories') parts.push(hazTxt);
+        if (evtTxt && evtTxt !== 'All Event Types') parts.push(evtTxt);
+        if (regTxt && regTxt !== 'All Regions') parts.push(regTxt);
+        document.getElementById('filterIndicator').textContent = parts.length ? 'Filtering by: ' + parts.join(' | ') : '';
+    }
+
+    async function applyFilters() {
+        updateFilterIndicator();
+        var qs = getFilterQS();
+        try {
+            var [spiData, trendsData, catData, hazData] = await Promise.all([
+                api('/api/regulator/spi' + qs),
+                api('/api/regulator/trends' + qs),
+                api('/api/regulator/signals-by-category' + qs),
+                api('/api/regulator/signals-by-hazard' + qs)
+            ]);
+            renderSPI(spiData, trendsData, catData, hazData);
+        } catch (err) {
+            console.error('Filter error:', err);
+        }
+    }
+
+    function clearFilters() {
+        document.getElementById('filterOccCat').value = '';
+        document.getElementById('filterHazCat').value = '';
+        document.getElementById('filterEventType').innerHTML = '<option value="">All Event Types</option>';
+        document.getElementById('filterRegion').value = '';
+        document.getElementById('filterIndicator').textContent = '';
+        applyFilters();
+    }
+
+    function renderSPI(summary, trends, categoryData, hazardData) {
         destroyCharts();
 
-        // Summary cards
         var periodStr = '—';
         if (summary.period && summary.period.from) {
             periodStr = summary.period.from + ' to ' + summary.period.to;
         }
         document.getElementById('summaryCards').innerHTML =
-            '<div class="card"><h3>Total Signals</h3><div class="value">' + (summary.total_signals || 0) + '</div><div class="sub">Across ' + (summary.total_tenants || 0) + ' tenant(s)</div></div>' +
+            '<div class="card"><h3>Total Signals</h3><div class="value">' + (summary.total_signals || 0) + '</div><div class="sub">Industry-wide aggregate</div></div>' +
             '<div class="card"><h3>Avg Risk Level</h3><div class="value">' + (summary.avg_risk_level || 0) + '</div><div class="sub">Severity &#215; Probability</div></div>' +
             '<div class="card"><h3>Total Alerts</h3><div class="value">' + (summary.total_alerts || 0) + '</div><div class="sub">' + (summary.open_alerts || 0) + ' open</div></div>' +
             '<div class="card"><h3>Report Period</h3><div class="value">' + periodStr + '</div><div class="sub">Earliest &#8594; Latest</div></div>';
 
-        // Signals by Type (bar)
         var byType = summary.by_type || [];
         newChart('signalsByTypeChart', {
             type: 'bar',
@@ -230,10 +876,9 @@
                 labels: byType.map(function(d) { return d.type; }),
                 datasets: [{ label: 'Count', data: byType.map(function(d) { return d.count; }), backgroundColor: '#2c7da0', borderRadius: 4 }]
             },
-            options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } }, x: { grid: { display: false } } } }
+            options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } }, x: { grid: { display: false } } } }
         });
 
-        // Alerts by Level (doughnut)
         var alertsByLevel = summary.alerts_by_level || [];
         var alertColors = { 'LOW': '#2ecc71', 'MEDIUM': '#f39c12', 'HIGH': '#e67e22', 'CRITICAL': '#e74c3c' };
         newChart('alertsByLevelChart', {
@@ -242,10 +887,9 @@
                 labels: alertsByLevel.map(function(d) { return d.level; }),
                 datasets: [{ data: alertsByLevel.map(function(d) { return d.count; }), backgroundColor: alertsByLevel.map(function(d) { return alertColors[d.level] || '#95a5a6'; }) }]
             },
-            options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 8, font: { size: 11 } } } } }
+            options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 8, font: { size: 11 } } } } }
         });
 
-        // Monthly Signal Trends (line)
         var monthlySignals = (trends && trends.monthly_signals) || [];
         newChart('trendChart', {
             type: 'line',
@@ -253,10 +897,9 @@
                 labels: monthlySignals.map(function(d) { return d.month; }),
                 datasets: [{ label: 'Signals', data: monthlySignals.map(function(d) { return d.count; }), borderColor: '#2c7da0', backgroundColor: '#2c7da022', fill: true, tension: 0.3, pointRadius: 3 }]
             },
-            options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } }, x: { grid: { display: false } } } }
+            options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } }, x: { grid: { display: false } } } }
         });
 
-        // Monthly Avg Risk Level (line)
         var monthlyRisk = (trends && trends.monthly_risk_avg) || [];
         newChart('riskTrendChart', {
             type: 'line',
@@ -264,104 +907,74 @@
                 labels: monthlyRisk.map(function(d) { return d.month; }),
                 datasets: [{ label: 'Avg Risk', data: monthlyRisk.map(function(d) { return d.avg_risk; }), borderColor: '#e94560', backgroundColor: '#e9456022', fill: true, tension: 0.3, pointRadius: 3 }]
             },
-            options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true }, x: { grid: { display: false } } } }
+            options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true }, x: { grid: { display: false } } } }
         });
 
-        // Tenant table
-        var tenantList = tenants || [];
-        if (tenantList.length) {
-            var html = '<table class="tenant-table"><thead><tr><th>Tenant</th><th>Signals</th><th>Avg Risk</th><th>Alerts</th><th>By Type</th></tr></thead><tbody>';
-            tenantList.forEach(function(t) {
-                var types = (t.by_type || []).map(function(bt) { return bt.type + ': ' + bt.count; }).join(', ');
-                html += '<tr><td style="font-family:monospace;font-size:12px">' + (t.tenant_id || '').slice(0, 8) + '…</td>' +
-                    '<td>' + (t.total_signals || 0) + '</td>' +
-                    '<td>' + (t.avg_risk || 0) + '</td>' +
-                    '<td>' + (t.total_alerts || 0) + '</td>' +
-                    '<td>' + (types || '—') + '</td></tr>';
-            });
-            html += '</tbody></table>';
-            document.getElementById('tenantTable').innerHTML = html;
-        } else {
-            document.getElementById('tenantTable').innerHTML = '<div class="no-data">No tenant data available</div>';
-        }
+        // Taxonomy charts
+        var categories = categoryData || [];
+        newChart('categoryChart', {
+            type: 'bar',
+            data: {
+                labels: categories.map(function(d) { return d.code; }),
+                datasets: [{ label: 'Signals', data: categories.map(function(d) { return d.count; }), backgroundColor: '#0db39e', borderRadius: 4 }]
+            },
+            options: { responsive: true, plugins: { legend: { display: false }, tooltip: { callbacks: { afterLabel: function(ctx) { var d = categories[ctx.dataIndex]; return d ? d.name : ''; } } } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } }, x: { grid: { display: false } } } }
+        });
+
+        var hazards = hazardData || [];
+        var hazColors = { 'OPS': '#2c7da0', 'TECH': '#e67e22', 'GRD': '#2ecc71', 'ENV': '#9b59b6', 'SEC': '#e74c3c', 'HF': '#f39c12' };
+        newChart('hazardChart', {
+            type: 'doughnut',
+            data: {
+                labels: hazards.map(function(d) { return d.name; }),
+                datasets: [{ data: hazards.map(function(d) { return d.count; }), backgroundColor: hazards.map(function(d) { return hazColors[d.code] || '#95a5a6'; }) }]
+            },
+            options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 8, font: { size: 11 } } } } }
+        });
     }
 
-    // ---- Just Culture Tab ----
-
-    function renderJustCulture(health, timeline, benchmark) {
-        // Summary cards
+    function renderJustCulture(health, timelineData, benchmark) {
+        var timeline = Array.isArray(timelineData) ? timelineData : (timelineData && timelineData.timeline) || [];
         var rateColor = '#1a3a5c';
-        if (health) {
-            rateColor = health.reporting_rate >= 80 ? '#2ecc71' : (health.reporting_rate >= 60 ? '#f39c12' : '#e74c3c');
-        }
+        if (health) rateColor = health.reporting_rate >= 80 ? '#2ecc71' : (health.reporting_rate >= 60 ? '#f39c12' : '#e74c3c');
         var hsColor = '#1a3a5c';
-        if (health) {
-            hsColor = health.health_score >= 80 ? '#2ecc71' : (health.health_score >= 60 ? '#f39c12' : '#e74c3c');
-        }
+        if (health) hsColor = health.health_score >= 80 ? '#2ecc71' : (health.health_score >= 60 ? '#f39c12' : '#e74c3c');
 
         document.getElementById('jcCards').innerHTML =
-            '<div class="card"><h3>Reporting Rate</h3><div class="value" style="color:' + rateColor + '">' + (health ? health.reporting_rate + '%' : '—') + '</div><div class="sub">Target: ' + (health ? health.target_rate + '%' : '—') + ' &middot; ' + (health ? health.actual_voluntary + ' / ' + health.expected_voluntary + ' expected' : '') + '</div></div>' +
-            '<div class="card"><h3>Health Score</h3><div class="value" style="color:' + hsColor + '">' + (health ? health.health_score : '—') + '</div><div class="sub">Trend: ' + (health ? health.trend : '—') + '</div></div>' +
+            '<div class="card"><h3>Industry Reporting Rate</h3><div class="value" style="color:' + rateColor + '">' + (health ? health.reporting_rate + '%' : '—') + '</div><div class="sub">Target: ' + (health ? health.target_rate + '%' : '—') + ' &middot; ' + (health ? health.actual_voluntary + ' / ' + health.expected_voluntary + ' expected' : '') + '</div></div>' +
+            '<div class="card"><h3>Industry Health Score</h3><div class="value" style="color:' + hsColor + '">' + (health ? health.health_score : '—') + '</div><div class="sub">Trend: ' + (health ? health.trend : '—') + '</div></div>' +
             '<div class="card"><h3>Diversity Score</h3><div class="value">' + (health ? health.diversity_score : '—') + '</div><div class="sub">Distinct reporter roles</div></div>' +
             '<div class="card"><h3>Trend Score</h3><div class="value">' + (health ? health.trend_score : '—') + '</div><div class="sub">6-month comparison</div></div>';
-
-        // Voluntary reports timeline
-        var tl = (timeline && timeline.timeline) || [];
-        var tlMonths = [];
-        var tlCounts = [];
-        var tlSeen = {};
-        tl.forEach(function(d) {
-            if (!tlSeen[d.month]) {
-                tlSeen[d.month] = 0;
-            }
-            tlSeen[d.month] += d.count;
-        });
-        var sorted = Object.keys(tlSeen).sort();
-        sorted.forEach(function(m) {
-            tlMonths.push(m);
-            tlCounts.push(tlSeen[m]);
-        });
 
         newChart('voluntaryTimelineChart', {
             type: 'bar',
             data: {
-                labels: tlMonths.length ? tlMonths : ['No data'],
-                datasets: [{ label: 'Voluntary Reports', data: tlCounts.length ? tlCounts : [0], backgroundColor: '#2ecc71', borderRadius: 4 }]
+                labels: (timeline || []).map(function(d) { return d.month; }),
+                datasets: [
+                    { label: 'Voluntary Reports', data: (timeline || []).map(function(d) { return d.voluntary_count; }), backgroundColor: '#0db39e', borderRadius: 4 },
+                    { label: 'Mandatory Reports', data: (timeline || []).map(function(d) { return d.mandatory_count; }), backgroundColor: '#e94560', borderRadius: 4 }
+                ]
             },
-            options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } }, x: { grid: { display: false } } } }
+            options: { responsive: true, scales: { y: { beginAtZero: true, stacked: true }, x: { stacked: true } } }
         });
 
-        // Per-tenant reporting rate
-        var tenantRates = (benchmark && benchmark.tenant_rates) || [];
-        newChart('tenantRateChart', {
-            type: 'bar',
-            data: {
-                labels: tenantRates.length ? tenantRates.map(function(t) { return (t.tenant_id || '').slice(0, 8); }) : ['No data'],
-                datasets: [{ label: 'Reporting Rate %', data: tenantRates.length ? tenantRates.map(function(t) { return t.reporting_rate; }) : [0], backgroundColor: '#0db39e', borderRadius: 4 }]
-            },
-            options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, max: 100 }, x: { grid: { display: false } } } }
-        });
-
-        // Component breakdown
-        var breakdownHtml = '';
-        if (health) {
-            breakdownHtml =
-                '<table class="tenant-table"><thead><tr><th>Component</th><th>Value</th><th>Weight</th><th>Contribution</th></tr></thead><tbody>' +
-                '<tr><td>Reporting Rate</td><td>' + health.reporting_rate + '%</td><td>60%</td><td>' + (health.reporting_rate * 0.6).toFixed(1) + '</td></tr>' +
-                '<tr><td>Trend Score</td><td>' + health.trend_score + '</td><td>20%</td><td>' + (health.trend_score * 0.2).toFixed(1) + '</td></tr>' +
-                '<tr><td>Diversity Score</td><td>' + health.diversity_score + '</td><td>20%</td><td>' + (health.diversity_score * 0.2).toFixed(1) + '</td></tr>' +
-                '<tr style="font-weight:700;background:#f8f9fa"><td>Health Score</td><td>' + health.health_score + '</td><td>100%</td><td>' + health.health_score + '</td></tr>' +
+        comps = (health && health.component_scores) || [];
+        if (comps.length) {
+            var html = '<table class="tenant-table"><thead><tr><th>Component</th><th>Value</th><th>Weight</th><th>Contribution</th></tr></thead><tbody>' +
+                comps.map(function(c) { return '<tr><td>' + c.component + '</td><td>' + c.score + '</td><td>' + c.weight + '</td><td>' + c.contribution + '</td></tr>'; }).join('') +
                 '</tbody></table>';
+        } else {
+            html = '<div class="no-data">No component data available</div>';
         }
-        document.getElementById('componentBreakdown').innerHTML = breakdownHtml || '<div class="no-data">No health data</div>';
+        document.getElementById('componentBreakdown').innerHTML = html;
 
-        // Recommendations
         var recs = (health && health.recommendations) || [];
-        document.getElementById('recommendationsList').innerHTML = recs.length
-            ? recs.map(function(r) { return '<li>' + r + '</li>'; }).join('')
-            : '<li>No recommendations available</li>';
+        if (recs.length) {
+            document.getElementById('recommendationsList').innerHTML = recs.map(function(r) { return '<li>' + r + '</li>'; }).join('');
+        } else {
+            document.getElementById('recommendationsList').innerHTML = '<li>No recommendations at this time</li>';
+        }
 
-        // Benchmark
         var benchHtml = '';
         if (benchmark) {
             var icaoOK = benchmark.industry_average_reporting_rate >= 80;
@@ -369,103 +982,254 @@
                 '<table class="tenant-table"><thead><tr><th>Metric</th><th>Value</th><th>Status</th></tr></thead><tbody>' +
                 '<tr><td>Industry Avg Reporting Rate</td><td><strong>' + benchmark.industry_average_reporting_rate + '%</strong></td><td style="color:' + (icaoOK ? '#2ecc71' : '#e74c3c') + '">' + (icaoOK ? '&#10003; Meets ICAO target' : '&#10007; Below target') + '</td></tr>' +
                 '<tr><td>Best-in-Class Rate</td><td><strong>' + benchmark.best_in_class_rate + '%</strong></td><td style="color:#2ecc71">&#9733; Top performer</td></tr>' +
-                '<tr><td>ICAO Benchmark (Doc 10959)</td><td><strong>' + benchmark.icao_benchmark + '%</strong></td><td>Target threshold</td></tr>' +
-                '<tr><td>Total Tenants Reporting</td><td><strong>' + benchmark.total_tenants + '</strong></td><td>—</td></tr>' +
+                '<tr><td>Safety Intelligence Benchmark</td><td><strong>' + benchmark.icao_benchmark + '%</strong></td><td>Target threshold</td></tr>' +
                 '</tbody></table>';
         }
         document.getElementById('benchmarkData').innerHTML = benchHtml || '<div class="no-data">No benchmark data available</div>';
     }
 
-    // ---- Tabs ----
+    function renderTopRisks(risks) {
+        risks = risks || [];
+        var active = risks.filter(function(r) { return r.is_active; });
+        document.getElementById('trCount').textContent = active.length || 0;
 
-    function setupTabs() {
-        document.querySelectorAll('.tab').forEach(function(tab) {
-            tab.addEventListener('click', function() {
-                document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
-                tab.classList.add('active');
-                document.getElementById('spiTab').style.display = tab.dataset.tab === 'spi' ? 'block' : 'none';
-                document.getElementById('justTab').style.display = tab.dataset.tab === 'just' ? 'block' : 'none';
+        var dates = active.map(function(r) { return r.updated_at || r.declared_at; }).filter(Boolean).sort();
+        document.getElementById('trUpdated').textContent = dates.length ? dates[dates.length - 1].slice(0, 10) : '—';
+
+        if (!active.length) {
+            document.getElementById('topRisksTable').innerHTML = '<div class="no-data">No active top risks declared</div>';
+            return;
+        }
+
+        var colorMap = {};
+        active.forEach(function(r) {
+            if (r.severity_ranking <= 5) colorMap[r.id] = '#e74c3c';
+            else if (r.severity_ranking <= 10) colorMap[r.id] = '#f39c12';
+            else colorMap[r.id] = '#2ecc71';
+        });
+
+        var html = '<table class="tenant-table"><thead><tr><th>Rank</th><th>Category</th><th>Risk Name</th><th>Description / Rationale</th><th>Status</th><th>Action</th></tr></thead><tbody>';
+        active.forEach(function(r) {
+            var badge = r.severity_ranking <= 5 ? '&#128308;' : (r.severity_ranking <= 10 ? '&#128992;' : '&#128994;');
+            html += '<tr id="tr-' + r.id + '">' +
+                '<td><span style="font-size:18px;">' + badge + '</span> <input type="number" id="rank-' + r.id + '" value="' + r.severity_ranking + '" min="1" max="50" style="width:45px;padding:4px;border:1px solid #ccc;border-radius:4px;text-align:center;font-size:13px;"></td>' +
+                '<td>' + (r.risk_category || '—') + '</td>' +
+                '<td><strong>' + r.risk_name + '</strong></td>' +
+                '<td><input type="text" id="desc-' + r.id + '" value="' + (r.description || '') + '" placeholder="Add rationale…" style="width:100%;padding:6px;border:1px solid #ccc;border-radius:4px;font-size:13px;"></td>' +
+                '<td>' + (r.is_active ? '<span style="color:#2ecc71;">Active</span>' : '<span style="color:#8a9aa8;">Inactive</span>') + '</td>' +
+                '<td style="white-space:nowrap;">' +
+                    '<button onclick="window._saveRisk(\'' + r.id + '\')" style="padding:4px 10px;font-size:12px;margin-right:4px;">Save</button>' +
+                    '<button onclick="window._deactivateRisk(\'' + r.id + '\', \'' + r.risk_name.replace(/'/g, "\\'") + '\')" style="padding:4px 10px;font-size:12px;background:#e74c3c;">Deactivate</button>' +
+                '</td></tr>';
+        });
+        html += '</tbody></table>';
+        document.getElementById('topRisksTable').innerHTML = html;
+    }
+
+    window._saveRisk = async function(id) {
+        var rank = document.getElementById('rank-' + id).value;
+        var desc = document.getElementById('desc-' + id).value;
+        var row = document.querySelector('#tr-' + id);
+        var riskName = row ? row.querySelector('td:nth-child(3)').textContent.trim() : '';
+        var category = row ? row.querySelector('td:nth-child(2)').textContent.trim() : '';
+
+        try {
+            var res = await fetch('/api/regulator/top-risks', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: id, risk_name: riskName, risk_category: category, severity_ranking: parseInt(rank) || 99, description: desc || '' })
             });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            var result = await res.json();
+            var updated = document.getElementById('trUpdated');
+            if (result.updated_at) updated.textContent = result.updated_at.slice(0, 10);
+            row.style.backgroundColor = '#d4edda';
+            setTimeout(function() { row.style.backgroundColor = ''; }, 1500);
+        } catch (err) {
+            alert('Save failed: ' + err.message);
+        }
+    };
+
+    window._deactivateRisk = async function(id, name) {
+        if (!confirm('Deactivate "' + name + '"? It will be hidden from operators.')) return;
+        try {
+            await fetch('/api/regulator/top-risks/' + id, {
+                method: 'DELETE',
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            document.getElementById('tr-' + id).remove();
+            var active = document.querySelectorAll('#topRisksTable tbody tr').length;
+            document.getElementById('trCount').textContent = active;
+            if (!active) document.getElementById('topRisksTable').innerHTML = '<div class="no-data">No active top risks declared</div>';
+        } catch (err) {
+            alert('Deactivate failed: ' + err.message);
+        }
+    };
+
+    function setupPDF(summary, trends) {
+        document.getElementById('exportPdfBtn').addEventListener('click', function() {
+            var doc = new jspdf.jsPDF('landscape', 'mm', 'a4');
+            var pageW = doc.internal.pageSize.getWidth();
+            var y = 20;
+
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(18);
+            doc.text('ICAO Annex 19 SPI Report', pageW / 2, y, { align: 'center' });
+            y += 12;
+            doc.setFontSize(10);
+            doc.setFont('helvetica', 'normal');
+            doc.text('Generated: ' + new Date().toISOString().slice(0, 10) + ' | Confidential — for safety management purposes only', pageW / 2, y, { align: 'center' });
+            y += 20;
+
+            doc.setFontSize(14);
+            doc.setFont('helvetica', 'bold');
+            doc.text('Executive Summary', 14, y);
+            y += 10;
+            doc.setFontSize(10);
+            doc.setFont('helvetica', 'normal');
+
+            var summaryRows = [
+                ['Total Signals', String(summary.total_signals || 0), 'Avg Risk Level', String(summary.avg_risk_level || 0)],
+                ['Total Alerts', String(summary.total_alerts || 0), 'Open Alerts', String(summary.open_alerts || 0)],
+                ['Report Period', (summary.period ? (summary.period.from || '') + ' — ' + (summary.period.to || '') : '—'), '', '']
+            ];
+            doc.autoTable({
+                startY: y,
+                head: [['Metric', 'Value', 'Metric', 'Value']],
+                body: summaryRows,
+                theme: 'grid',
+                styles: { fontSize: 9 },
+                margin: { left: 14 }
+            });
+            y = doc.lastAutoTable.finalY + 15;
+
+            // signals by type
+            if (summary.by_type && summary.by_type.length) {
+                doc.setFontSize(14);
+                doc.setFont('helvetica', 'bold');
+                doc.text('Signals by Type', 14, y);
+                y += 10;
+                doc.setFontSize(9);
+                doc.setFont('helvetica', 'normal');
+                summary.by_type.forEach(function(t) {
+                    doc.text(t.type + ': ' + t.count + ' signals', 14, y);
+                    y += 6;
+                });
+                y += 10;
+            }
+
+            // monthly trends
+            var monthly = (trends && trends.monthly_counts) || [];
+            if (monthly.length) {
+                doc.setFontSize(14);
+                doc.setFont('helvetica', 'bold');
+                doc.text('Monthly Signal Trends', 14, y);
+                y += 10;
+                doc.setFontSize(9);
+                doc.setFont('helvetica', 'normal');
+                doc.autoTable({
+                    startY: y,
+                    head: [['Month', 'Mandatory', 'Voluntary', 'Total']],
+                    body: monthly.map(function(m) { return [m.month, m.mandatory || 0, m.voluntary || 0, m.total || 0]; }),
+                    theme: 'grid',
+                    styles: { fontSize: 9 },
+                    margin: { left: 14 }
+                });
+                y = doc.lastAutoTable.finalY + 10;
+            }
+
+            doc.save('Annex19_SPI_Report_' + new Date().toISOString().slice(0, 10) + '.pdf');
         });
     }
 
-    // ---- PDF Export ----
+    // ─── UPLOAD ──────────────────────────────────────────────────────
 
-    function setupPDF(summary, trends, tenants) {
-        document.getElementById('exportPdfBtn').addEventListener('click', async function() {
-            var btn = this;
+    function setupUpload() {
+        var btn = document.getElementById('uploadBtn');
+        var fileInput = document.getElementById('uploadFiles');
+        var progress = document.getElementById('uploadProgress');
+        var progressBar = document.getElementById('uploadProgressBar');
+        var status = document.getElementById('uploadStatus');
+        var result = document.getElementById('uploadResult');
+
+        btn.addEventListener('click', async function() {
+            var files = fileInput.files;
+            if (!files.length) { alert('Select at least one file.'); return; }
+
             btn.disabled = true;
-            btn.textContent = 'Generating PDF…';
+            btn.textContent = 'Uploading…';
+            progress.style.display = 'block';
+            result.style.display = 'none';
+
+            var formData = new FormData();
+            for (var i = 0; i < files.length; i++) formData.append('files', files[i]);
+
+            status.textContent = 'Uploading ' + files.length + ' file(s)…';
+            progressBar.style.width = '30%';
+
             try {
-                var { jsPDF } = window.jspdf;
-                var doc = new jsPDF('landscape', 'mm', 'a4');
-                var pw = 297, y = 16;
-
-                doc.setFontSize(18); doc.setTextColor(26, 43, 92);
-                doc.text('SAFETY PERFORMANCE DASHBOARD', pw / 2, y, { align: 'center' }); y += 10;
-                doc.setFontSize(10); doc.setTextColor(100, 100, 100);
-                doc.text('ICAO Annex 19 — Safety Management System (SMS) — Aggregated SPI Report', pw / 2, y, { align: 'center' }); y += 6;
-                doc.text('Generated: ' + new Date().toISOString().split('T')[0] + ' | Period: ' + ((summary.period ? (summary.period.from || 'N/A') : 'N/A') + ' to ' + (summary.period ? (summary.period.to || 'N/A') : 'N/A')), pw / 2, y, { align: 'center' }); y += 10;
-
-                // Summary
-                doc.setFontSize(11); doc.setTextColor(26, 43, 92);
-                doc.text('Overall Summary', 14, y); y += 6; doc.setFontSize(9);
-                [
-                    ['Total Signals', String(summary.total_signals || 0), 'Total Tenants', String(summary.total_tenants || 0)],
-                    ['Avg Risk Level', String(summary.avg_risk_level || 0), 'Total Alerts', String(summary.total_alerts || 0)],
-                    ['Open Alerts', String(summary.open_alerts || 0), 'Period', ((summary.period ? (summary.period.from || '') : '') + ' — ' + (summary.period ? (summary.period.to || '') : ''))]
-                ].forEach(function(row) {
-                    doc.text(row[0], 14, y); doc.text(row[1], 60, y);
-                    doc.text(row[2], 110, y); doc.text(row[3], 160, y); y += 5;
+                var res = await fetch('/api/import/batch', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token },
+                    body: formData
                 });
-                y += 4;
-
-                // By type
-                var byType = summary.by_type || [];
-                if (byType.length) {
-                    doc.setFontSize(11); doc.text('Signals by Type', 14, y); y += 6; doc.setFontSize(9);
-                    byType.forEach(function(t) { doc.text('  ' + t.type + ': ' + t.count + ' (' + Math.round(t.count / summary.total_signals * 100) + '%)', 14, y); y += 5; });
-                    y += 2;
+                progressBar.style.width = '90%';
+                if (!res.ok) {
+                    var errData = await res.json().catch(function() { return { error: res.statusText }; });
+                    throw new Error(errData.error || 'HTTP ' + res.status);
                 }
+                var data = await res.json();
+                progressBar.style.width = '100%';
+                status.textContent = 'Complete!';
 
-                // Alerts
-                var alertsByLevel = summary.alerts_by_level || [];
-                if (alertsByLevel.length) {
-                    doc.setFontSize(11); doc.text('Alerts by Level', 14, y); y += 6; doc.setFontSize(9);
-                    alertsByLevel.forEach(function(a) { doc.text('  ' + a.level + ': ' + a.count, 14, y); y += 5; });
-                    y += 4;
+                var successClass = data.errors && data.errors.length ? 'warning' : 'success';
+                var bgColor = successClass === 'warning' ? '#fff3cd' : '#d4edda';
+                var borderColor = successClass === 'warning' ? '#ffc107' : '#28a745';
+                var textColor = successClass === 'warning' ? '#856404' : '#155724';
+
+                var html = '<div style="background:' + bgColor + ';border-left:4px solid ' + borderColor + ';padding:12px;border-radius:8px;color:' + textColor + ';margin-bottom:12px;">';
+                html += '<strong>' + data.total_signals_imported + ' signals</strong> imported from ' + data.files_processed + ' file(s)';
+                if (data.by_year) {
+                    var years = Object.keys(data.by_year);
+                    if (years.length) html += '<br><span style="font-size:13px;">Years: ' + years.map(function(y) { return y + ' (' + data.by_year[y] + ')'; }).join(', ') + '</span>';
                 }
-
-                // Tenants
-                var tenantList = tenants || [];
-                if (tenantList.length) {
-                    doc.setFontSize(11); doc.text('Per-Tenant Comparison (Aggregated Counts Only)', 14, y); y += 7; doc.setFontSize(8);
-                    doc.setFillColor(240, 242, 245); doc.rect(14, y - 2, 180, 5, 'F');
-                    doc.text('Tenant', 14, y); doc.text('Signals', 70, y); doc.text('Avg Risk', 100, y); doc.text('Alerts', 130, y); doc.text('Types', 150, y);
-                    y += 5;
-                    tenantList.forEach(function(t) {
-                        var types = (t.by_type || []).map(function(bt) { return bt.type + ': ' + bt.count; }).join(', ');
-                        doc.text((t.tenant_id || '').slice(0, 8) + '…', 14, y); doc.text(String(t.total_signals || 0), 70, y);
-                        doc.text(String(t.avg_risk || 0), 100, y); doc.text(String(t.total_alerts || 0), 130, y); doc.text(types || '—', 150, y);
-                        y += 5;
-                        if (y > 190) { doc.addPage(); y = 16; }
+                html += '</div>';
+                if (data.details && data.details.length) {
+                    html += '<table class="tenant-table"><thead><tr><th>File</th><th>Year</th><th>Signals</th><th>Types</th></tr></thead><tbody>';
+                    data.details.forEach(function(f) {
+                        var types = Object.keys(f.by_type || {}).filter(function(t) { return f.by_type[t] > 0; }).map(function(t) { return t + ': ' + f.by_type[t]; }).join(', ');
+                        html += '<tr><td>' + f.filename + '</td><td>' + f.year + '</td><td>' + f.total_signals_imported + '</td><td>' + (types || '—') + '</td></tr>';
                     });
+                    html += '</tbody></table>';
                 }
-
-                doc.setFontSize(7); doc.setTextColor(150, 150, 150);
-                doc.text('Aggregated SPI data only — no PII or raw signal data included.', 14, 195);
-                doc.text('Confidential — For authorized regulatory use only.', 14, 199);
-                doc.save('annex19-safety-dashboard-' + new Date().toISOString().split('T')[0] + '.pdf');
-            } catch (e) {
-                alert('PDF export error: ' + e.message);
+                if (data.errors && data.errors.length) {
+                    html += '<div style="margin-top:12px;padding:10px;background:#fee2e2;border-radius:8px;color:#b91c1c;font-size:13px;">';
+                    html += '<strong>Errors:</strong><ul style="margin:4px 0 0 16px;">';
+                    data.errors.forEach(function(e) { html += '<li>' + e + '</li>'; });
+                    html += '</ul></div>';
+                }
+                result.innerHTML = html;
+                result.style.display = 'block';
+            } catch (err) {
+                progressBar.style.width = '100%';
+                status.textContent = 'Failed';
+                result.innerHTML = '<div style="background:#fee2e2;border-left:4px solid #b91c1c;padding:12px;border-radius:8px;color:#b91c1c;">&#10060; ' + err.message + '</div>';
+                result.style.display = 'block';
             } finally {
                 btn.disabled = false;
-                btn.textContent = '&#128196; Export PDF (Annex 19)';
+                btn.textContent = '&#128229; Upload & Import';
             }
         });
     }
 
-    loadDashboard();
+    // ─── BOOT ────────────────────────────────────────────────────────
+
+    if (role === 'regulator') {
+        loadRegulatorView();
+    } else {
+        loadOperatorView();
+    }
+    setupUpload();
 })();
 </script>
 </body>

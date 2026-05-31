@@ -19,7 +19,10 @@ router.get('/timeline', async (req, res, next) => {
   try {
     const months = parseInt(req.query.months, 10) || 12;
     const { rows } = await pool.query('SELECT just_culture_timeline($1) AS result', [months]);
-    res.json({ timeline: rows[0].result });
+    const timeline = (rows[0].result || []).map(function(entry) {
+      return Object.assign({}, entry, { count: entry.voluntary_count });
+    });
+    res.json({ timeline: timeline });
   } catch (err) {
     next(err);
   }

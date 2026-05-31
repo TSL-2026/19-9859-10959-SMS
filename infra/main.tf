@@ -10,9 +10,10 @@ terraform {
       version = "~> 5.0"
     }
   }
-  backend "gcs" {
-    # Bucket name will be provided during deployment
-  }
+  # backend "gcs" {
+  #   bucket = "safety-monitor-tfstate"
+  # }
+  # Using local state for demo deployment
 }
 
 provider "google" {
@@ -200,6 +201,19 @@ resource "google_storage_bucket" "uploads" {
 }
 
 # ============================================
+# VPC ACCESS CONNECTOR (for Cloud SQL private IP)
+# ============================================
+resource "google_vpc_access_connector" "main" {
+  name          = "sm-connector"
+  region        = var.region
+  network       = google_compute_network.main.name
+  ip_cidr_range = "10.8.0.0/28"
+  machine_type  = "e2-micro"
+  min_instances = 2
+  max_instances = 3
+}
+
+# ============================================
 # SERVICE ACCOUNT FOR CLOUD RUN
 # ============================================
 resource "google_service_account" "cloud_run" {
@@ -242,8 +256,25 @@ resource "google_cloud_run_v2_service" "safety_monitor" {
       max_instance_count = 10
     }
 
+    vpc_access {
+      connector = google_vpc_access_connector.main.id
+      egress    = "PRIVATE_RANGES_ONLY"
+    }
+
+    volumes {
+      name = "cloudsql"
+      cloud_sql_instance {
+        instances = [google_sql_database_instance.main.connection_name]
+      }
+    }
+
     containers {
       image = "gcr.io/${var.project_id}/safety-monitor:latest"
+
+      volume_mounts {
+        name       = "cloudsql"
+        mount_path = "/cloudsql"
+      }
 
       resources {
         limits = {
@@ -300,10 +331,6 @@ resource "google_cloud_run_v2_service" "safety_monitor" {
           }
         }
       }
-      env {
-        name  = "PORT"
-        value = "3000"
-      }
     }
 
     service_account = google_service_account.cloud_run.email
@@ -336,46 +363,11 @@ resource "google_cloud_run_v2_service_iam_policy" "public" {
   policy_data = data.google_iam_policy.noauth.policy_data
 }
 
-# ============================================
-# BILLING BUDGET ALERT
-# ============================================
-resource "google_billing_budget" "monthly" {
-  billing_account = var.billing_account_id
-  display_name    = "Safety Monitor Budget - $25 limit"
-
-  budget_filter {
-    projects               = ["projects/${var.project_id}"]
-    credit_types_treatment = "EXCLUDE_ALL_CREDITS"
-  }
-
-  amount {
-    specified_amount {
-      currency_code = "USD"
-      units         = 25
-    }
-  }
-
-  threshold_rules {
-    threshold_percent = 0.5
-    spend_basis       = "CURRENT_SPEND"
-  }
-  threshold_rules {
-    threshold_percent = 0.8
-    spend_basis       = "CURRENT_SPEND"
-  }
-  threshold_rules {
-    threshold_percent = 0.9
-    spend_basis       = "CURRENT_SPEND"
-  }
-  threshold_rules {
-    threshold_percent = 1.0
-    spend_basis       = "CURRENT_SPEND"
-  }
-
-  all_updates_rule {
-    monitoring_notification_channels = []
-    disable_default_iam_recipients   = false
-  }
-}
+# BILLING BUDGET ALERT — skipped for initial deploy, uncomment after setting up ADC quota project
+# resource "google_billing_budget" "monthly" {
+#   billing_account = var.billing_account_id
+#   display_name    = "Safety Monitor Budget - $25 limit"
+#   ...
+# }
 
 
