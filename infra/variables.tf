@@ -32,3 +32,9 @@ variable "service_name" {
 #   type        = string
 #   sensitive   = true
 # }
+
+variable "budget_alert_email" {
+  description = "Email for budget alerts"
+  type        = string
+  default     = "admin@example.com"
+}

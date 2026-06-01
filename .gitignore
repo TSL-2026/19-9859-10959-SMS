@@ -1,3 +1,32 @@
+# Environment
+.env
+.env.local
+.env.production
+
+# Dependencies
+node_modules/
+
+# Uploads
+uploads/
+*.xlsx
+*.csv
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Test coverage
+coverage/
+.nyc_output
 
 # Terraform
 infra/.terraform/
@@ -11,3 +40,6 @@ override.tf.json
 *_override.tf.json
 .terraformrc
 terraform.rc
+
+# No committed secrets
+infra/terraform.tfvars

@@ -184,8 +184,8 @@ router.post('/signals', authenticate, async (req, res, next) => {
       return res.status(400).json({ error: 'Missing required field(s): report_type, severity' });
     }
 
-    if (!['MOR', 'VSR', 'Hazard'].includes(report_type)) {
-      return res.status(400).json({ error: 'report_type must be MOR, VSR, or Hazard' });
+    if (!['MOR', 'VSR', 'Hazard', 'HAZARD', 'SAFETY_DEFICIENCY', 'DIVERSION'].includes(report_type)) {
+      return res.status(400).json({ error: 'report_type must be MOR, VSR, Hazard, SAFETY_DEFICIENCY, or DIVERSION' });
     }
 
     const sev = Number(severity);

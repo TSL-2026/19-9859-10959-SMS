@@ -22,14 +22,14 @@ echo ""
 # --------------------------------------------------
 # 1. Set GCP project
 # --------------------------------------------------
-echo "--- [1/6] Setting GCP project ---"
+echo "--- [1/7] Setting GCP project ---"
 gcloud config set project "$PROJECT_ID"
 
 # --------------------------------------------------
 # 2. Enable required APIs
 # --------------------------------------------------
 echo ""
-echo "--- [2/6] Enabling required APIs ---"
+echo "--- [2/7] Enabling required APIs ---"
 gcloud services enable \
   cloudrun.googleapis.com \
   sqladmin.googleapis.com \
@@ -46,9 +46,24 @@ gcloud services enable \
 # 3. Terraform — provision infrastructure
 # --------------------------------------------------
 echo ""
-echo "--- [3/6] Provisioning infrastructure with Terraform ---"
+echo "--- [3/7] Provisioning infrastructure with Terraform ---"
+
+# Verify required secrets are set
+: "${DB_PASSWORD:?Must set DB_PASSWORD}"
+: "${JWT_SECRET:?Must set JWT_SECRET}"
+: "${ENCRYPTION_KEY:?Must set ENCRYPTION_KEY}"
 
 cd "$(dirname "$0")/../infra"
+
+cat > terraform.tfvars <<EOF
+project_id         = "$PROJECT_ID"
+region             = "$REGION"
+db_password        = "$DB_PASSWORD"
+jwt_secret         = "$JWT_SECRET"
+encryption_key     = "$ENCRYPTION_KEY"
+budget_alert_email = "${BUDGET_ALERT_EMAIL:-admin@example.com}"
+billing_account_id = "${BILLING_ACCOUNT_ID:-null}"
+EOF
 
 terraform init
 terraform apply -auto-approve
@@ -63,7 +78,7 @@ echo "DB Connection: $DB_CONN"
 # 4. Build & push Docker image
 # --------------------------------------------------
 echo ""
-echo "--- [4/6] Building and pushing Docker image ---"
+echo "--- [4/7] Building and pushing Docker image ---"
 
 # Create Artifact Registry repo if needed
 gcloud artifacts repositories describe cloud-run-source-deploy \
@@ -81,7 +96,7 @@ docker push "$IMAGE_TAG"
 # 5. Run database migrations
 # --------------------------------------------------
 echo ""
-echo "--- [5/6] Running database migrations ---"
+echo "--- [5/7] Running database migrations ---"
 
 # Fetch DB password from Secret Manager
 DB_PASSWORD=$(gcloud secrets versions access latest \
@@ -110,7 +125,7 @@ DB_HOST=localhost DB_NAME="$DB_NAME" DB_USER="$DB_USER" DB_PASSWORD="$DB_PASSWOR
 # 6. Deploy to Cloud Run
 # --------------------------------------------------
 echo ""
-echo "--- [6/6] Deploying to Cloud Run ---"
+echo "--- [6/7] Deploying to Cloud Run ---"
 
 gcloud run deploy "$SERVICE" \
   --image "$IMAGE_TAG" \

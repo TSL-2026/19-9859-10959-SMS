@@ -7,6 +7,7 @@ require('dotenv').config();
 process.env.NODE_ENV = 'test';
 process.env.PORT = 0;
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret-12345';
+process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'test-encryption-key-32bytes!';
 process.env.SMTP_HOST = 'mock';
 process.env.SMTP_PORT = '0';
 process.env.SMTP_USER = 'mock';

@@ -78,7 +78,6 @@ jobs:
           cat > terraform.tfvars <<EOF
           project_id         = "${{ env.PROJECT_ID }}"
           region             = "${{ env.REGION }}"
-          environment        = "dev"
           db_password        = "${{ secrets.DB_PASSWORD }}"
           jwt_secret         = "${{ secrets.JWT_SECRET }}"
           encryption_key     = "${{ secrets.ENCRYPTION_KEY }}"
